@@ -92,7 +92,7 @@ export async function setTenantStatusAction(tenantId: string, status: "active" |
   await runAction(`/admin/empresas/${tenantId}`, async () => {
     const t = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!t || t.status === "prospect" || t.status === "deleted") throw Errors.policy("Status não pode ser alterado");
-    await prisma.tenant.update({ where: { id: tenantId }, data: { status } });
+    await prisma.tenant.update({ where: { id: tenantId }, data: { status, suspendedReason: status === "suspended" ? "admin" : null, statusBeforeSuspension: null } });
     await audit({ tenantId, actorId: admin.id, action: `tenant.status.${status}`, resource: `tenant:${tenantId}` });
     return "Status atualizado";
   });
@@ -138,5 +138,16 @@ export async function publishBrandingAdminAction(tenantId: string, brandingId: s
   await runAction(`/admin/empresas/${tenantId}`, async () => {
     await publishBranding(tenantId, brandingId);
     return "Tema publicado";
+  });
+}
+
+export async function changePlanAction(tenantId: string, fd: FormData) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const planId = str(fd, "planId");
+    if (!(await prisma.plan.findUnique({ where: { id: planId } }))) throw Errors.validation("Plano inválido");
+    const { changePlan } = await import("@/lib/billing/service");
+    await changePlan(tenantId, planId, admin.id);
+    return "Plano alterado (vale a partir da próxima fatura)";
   });
 }

@@ -21,7 +21,14 @@ export interface PublicService {
   durationMinutes: number;
   priceCents: number;
   depositCents: number;
-  professionals: { id: string; name: string }[];
+  professionals: { id: string; name: string; unitId: string }[];
+}
+
+export interface PublicUnit {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
 }
 
 export async function getPublicCatalog(tenantId: string): Promise<PublicService[]> {
@@ -29,7 +36,7 @@ export async function getPublicCatalog(tenantId: string): Promise<PublicService[
     where: { active: true },
     include: {
       category: true,
-      professionals: { include: { professional: { select: { id: true, displayName: true, active: true } } } },
+      professionals: { include: { professional: { select: { id: true, displayName: true, active: true, unitId: true, unit: { select: { active: true } } } } } },
     },
     orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }],
   });
@@ -43,16 +50,33 @@ export async function getPublicCatalog(tenantId: string): Promise<PublicService[
       priceCents: s.priceCents,
       depositCents: computeDepositCents(s.priceCents, s.depositType, s.depositValue),
       professionals: s.professionals
-        .filter((p) => p.professional.active)
-        .map((p) => ({ id: p.professional.id, name: p.professional.displayName })),
+        .filter((p) => p.professional.active && p.professional.unit.active)
+        .map((p) => ({ id: p.professional.id, name: p.professional.displayName, unitId: p.professional.unitId })),
     }))
     .filter((s) => s.professionals.length > 0);
 }
 
+/** Unidades com ao menos um profissional ativo (Fase 2 — múltiplas unidades). */
+export async function getPublicUnits(tenantId: string): Promise<PublicUnit[]> {
+  const units = await tenantDb(tenantId).unit.findMany({
+    where: { active: true, professionals: { some: { active: true } } },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+  return units.map((u) => ({ id: u.id, name: u.name, address: u.address, phone: u.phone }));
+}
+
 export function cancellationPolicy(t: Tenant): string {
+  if (t.cancellationPolicyText?.trim()) return t.cancellationPolicyText.trim();
+  const late =
+    t.lateCancelRetainPercent >= 100
+      ? "o sinal não é devolvido"
+      : t.lateCancelRetainPercent <= 0
+        ? "o sinal é devolvido integralmente"
+        : `${t.lateCancelRetainPercent}% do sinal fica retido`;
+  const noShow = t.noShowRetainPercent >= 100 ? "o sinal não é devolvido" : `${t.noShowRetainPercent}% do sinal fica retido`;
+  const back = t.depositRefundMode === "credit" ? "vira crédito para o próximo agendamento" : "é reembolsado no Pix";
   return (
-    t.cancellationPolicyText?.trim() ||
-    `Cancelamentos e remarcações gratuitos até ${t.cancelLimitHours}h antes do horário. ` +
-      `Depois disso, ou em caso de falta, o sinal pago não é devolvido.`
+    `Cancelamentos e remarcações gratuitos até ${t.cancelLimitHours}h antes do horário (o sinal ${back}). ` +
+    `Depois disso, ${late}. Em caso de falta, ${noShow}.`
   );
 }

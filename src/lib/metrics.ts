@@ -38,11 +38,11 @@ export async function noShowMetrics(tenantId: string, period: string, tz: string
     prisma.appointment.count({ where: { ...inMonth, status: { in: ["concluido", "nao_compareceu"] } } }),
     prisma.appointment.count({ where: { ...inMonth, status: "nao_compareceu" } }),
     prisma.payment.aggregate({
-      where: { tenantId, status: "retained", appointment: { startsAt: { gte: start, lt: end } } },
-      _sum: { amountCents: true },
+      where: { tenantId, retainedCents: { gt: 0 }, appointment: { startsAt: { gte: start, lt: end } } },
+      _sum: { retainedCents: true },
     }),
     prisma.payment.aggregate({
-      where: { tenantId, status: { in: ["paid", "applied", "retained"] }, paidAt: { gte: start, lt: end } },
+      where: { tenantId, status: { in: ["paid", "applied", "retained", "credited", "refunded"] }, paidAt: { gte: start, lt: end } },
       _sum: { amountCents: true },
     }),
   ]);
@@ -80,7 +80,7 @@ export async function noShowMetrics(tenantId: string, period: string, tz: string
     finished,
     noShows,
     noShowRate: finished > 0 ? noShows / finished : null,
-    retainedDepositsCents: retained._sum.amountCents ?? 0,
+    retainedDepositsCents: retained._sum.retainedCents ?? 0,
     depositsReceivedCents: received._sum.amountCents ?? 0,
     releasedSlots: Number(r?.released ?? 0),
     reoccupiedSlots: Number(r?.reoccupied ?? 0),

@@ -32,6 +32,13 @@ const TENANT_MODELS = new Set<string>([
   "MessageOutbox",
   "MessageUsage",
   "Subscription",
+  // Fase 2
+  "TenantDomain",
+  "Coupon",
+  "CustomerCredit",
+  "WaitlistEntry",
+  "BillingInvoice",
+  "InstagramConnection",
 ]);
 
 type AnyArgs = Record<string, unknown> & {

@@ -17,9 +17,14 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
   const bounds = dayBounds(date, tz);
   const back = `/painel/agenda?data=${date}`;
   const onlyPro = professional?.id;
+  const units = await db.unit.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  const unitFilter = units.some((u) => u.id === get("unidade")) ? get("unidade")! : null;
 
   const [pros, appts, blocks, services] = await Promise.all([
-    db.professional.findMany({ where: { active: true, ...(onlyPro ? { id: onlyPro } : {}) }, orderBy: { displayName: "asc" } }),
+    db.professional.findMany({
+      where: { active: true, ...(onlyPro ? { id: onlyPro } : {}), ...(unitFilter ? { unitId: unitFilter } : {}) },
+      orderBy: { displayName: "asc" },
+    }),
     db.appointment.findMany({
       where: {
         startsAt: { gte: bounds.start, lt: bounds.end },
@@ -52,6 +57,12 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
             <Link className="rounded-lg border bg-white px-3 py-2" href={`/painel/agenda?data=${today}`}>Hoje</Link>
             <Link className="rounded-lg border bg-white px-3 py-2" href={`/painel/agenda?data=${addDays(date, 1)}`}>→</Link>
             <form className="flex gap-1">
+              {units.length > 1 && !onlyPro && (
+                <Select name="unidade" defaultValue={unitFilter ?? ""} className="w-40" aria-label="Unidade">
+                  <option value="">Todas as unidades</option>
+                  {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </Select>
+              )}
               <Input type="date" name="data" defaultValue={date} className="w-40" />
               <Button variant="secondary" type="submit">Ir</Button>
             </form>

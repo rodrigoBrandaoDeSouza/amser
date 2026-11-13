@@ -14,7 +14,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const serviceId = url.searchParams.get("serviceId") ?? "";
     const date = url.searchParams.get("date") ?? "";
     const professionalId = url.searchParams.get("professionalId") || null;
-    const slots = await getAvailability({ tenant, serviceId, professionalId, date });
+    const unitId = url.searchParams.get("unitId") || null;
+    const slots = await getAvailability({ tenant, serviceId, professionalId, unitId, date });
     // Não expõe quais profissionais estão livres — só os horários.
     return json({ slots: slots.map((s) => ({ startsAt: s.startsAt, label: formatTime(new Date(s.startsAt), tenant.timezone) })) });
   } catch (err) {

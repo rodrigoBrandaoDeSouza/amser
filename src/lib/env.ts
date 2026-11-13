@@ -17,6 +17,15 @@ const schema = z.object({
   STORAGE_PROVIDER: z.enum(["local"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default(".uploads"),
   JOBS_SECRET: z.string().default("dev-jobs-secret"),
+  // Fase 2
+  BILLING_PROVIDER: z.enum(["mock"]).default("mock"),
+  BILLING_WEBHOOK_SECRET: z.string().default("dev-billing-webhook-secret"),
+  INSTAGRAM_PROVIDER: z.enum(["off", "mock", "meta"]).default("off"),
+  INSTAGRAM_APP_ID: z.string().optional().default(""),
+  INSTAGRAM_APP_SECRET: z.string().optional().default(""),
+  INSTAGRAM_GRAPH_VERSION: z.string().default("v27.0"),
+  SELF_SIGNUP_ENABLED: z.enum(["true", "false"]).default("true"),
+  DEFAULT_PLAN_NAME: z.string().default("Essencial"),
 });
 
 export type Env = z.infer<typeof schema>;

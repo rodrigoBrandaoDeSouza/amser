@@ -1,5 +1,5 @@
 import { requireTenantUser } from "@/lib/auth/session";
-import { Badge, Card, Field, Flash, Input, PageHeader } from "@/components/ui";
+import { Badge, Card, Field, Flash, Input, PageHeader, Select } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { saveProfessionalAction, createStaffLoginAction } from "../actions";
@@ -9,10 +9,21 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 export default async function TeamPage({ searchParams }: { searchParams: SearchParams }) {
   const { db } = await requireTenantUser();
   const { ok, erro } = await flashParams(searchParams);
-  const pros = await db.professional.findMany({
-    include: { workingHours: { orderBy: [{ weekday: "asc" }, { startTime: "asc" }] }, user: { select: { email: true } } },
-    orderBy: { displayName: "asc" },
-  });
+  const [pros, units] = await Promise.all([
+    db.professional.findMany({
+      include: { workingHours: { orderBy: [{ weekday: "asc" }, { startTime: "asc" }] }, user: { select: { email: true } } },
+      orderBy: { displayName: "asc" },
+    }),
+    db.unit.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+  ]);
+  const unitSelect = (current?: string) =>
+    units.length > 1 ? (
+      <Field label="Unidade">
+        <Select name="unitId" defaultValue={current ?? units[0].id}>
+          {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </Select>
+      </Field>
+    ) : null;
   return (
     <>
       <PageHeader title="Equipe" subtitle="Profissionais, jornadas e acessos" />
@@ -25,6 +36,7 @@ export default async function TeamPage({ searchParams }: { searchParams: SearchP
               <input type="hidden" name="hoursSubmitted" value="1" />
               <div className="flex flex-wrap items-end gap-3">
                 <Field label="Nome exibido"><Input name="displayName" defaultValue={p.displayName} required /></Field>
+                {unitSelect(p.unitId)}
                 <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" name="active" defaultChecked={p.active} /> Ativo</label>
               </div>
               <div className="-mx-4 overflow-x-auto px-4">
@@ -76,6 +88,7 @@ export default async function TeamPage({ searchParams }: { searchParams: SearchP
       <Card title="Adicionar profissional" className="mt-6">
         <form action={saveProfessionalAction} className="flex flex-wrap items-end gap-3">
           <Field label="Nome exibido"><Input name="displayName" required /></Field>
+          {unitSelect()}
           <SubmitButton>Adicionar</SubmitButton>
         </form>
         <p className="mt-2 text-xs text-zinc-500">Começa com jornada seg–sáb, 09:00–18:00. Ajuste depois.</p>

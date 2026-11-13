@@ -41,8 +41,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ to
           <div className="capitalize">{formatDateTime(appt.startsAt, tz)}</div>
           <div className="pub-muted text-sm">
             com {appt.professional.displayName} · {appt.service.durationMinutes} min · {formatBRL(appt.priceSnapshotCents)}
+            {appt.discountCents > 0 && <> (desconto de {formatBRL(appt.discountCents)})</>}
           </div>
-          {tenant.address && <div className="pub-muted text-sm">{tenant.address}</div>}
+          {(appt.unit.address ?? tenant.address) && (
+            <div className="pub-muted text-sm">
+              {appt.unit.name !== "Principal" ? `${appt.unit.name} — ` : ""}
+              {appt.unit.address ?? tenant.address}
+            </div>
+          )}
+          {appt.creditAppliedCents > 0 && <div className="pub-muted text-sm">Crédito usado no sinal: {formatBRL(appt.creditAppliedCents)}</div>}
         </div>
         <ManageAppointment
           token={token}
@@ -54,7 +61,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ to
           startsAt={appt.startsAt.toISOString()}
           endsAt={appt.endsAt.toISOString()}
           title={`${appt.service.name} — ${tenant.name}`}
-          location={tenant.address ?? ""}
+          location={appt.unit.address ?? tenant.address ?? ""}
           canChange={isWithinCancelWindow(appt.startsAt, tenant.cancelLimitHours)}
           cancelLimitHours={tenant.cancelLimitHours}
           policy={cancellationPolicy(tenant)}

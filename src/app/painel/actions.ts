@@ -9,6 +9,7 @@ import { isValidTime, zonedToUtc, isValidDate } from "@/lib/time";
 import { audit } from "@/lib/audit";
 import { encryptJson } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
+import { assertWithinPlan } from "@/lib/plans";
 import { createBooking, cancelAppointment, confirmPresence, markOutcome, rescheduleAppointment } from "@/lib/scheduling/booking";
 import { uploadTenantImage, deleteTenantImage, createOwnerUser } from "@/lib/tenants";
 import { analyzeBranding, publishBranding, restoreBranding, updateDraft, saveDraft, latestTheme } from "@/lib/branding/service";
@@ -151,9 +152,15 @@ export async function saveProfessionalAction(fd: FormData) {
     const id = str(fd, "id");
     const name = str(fd, "displayName");
     if (name.length < 2) throw Errors.validation("Nome obrigatório");
-    const unit = await db.unit.findFirstOrThrow({});
+    // Unidade escolhida (Fase 2) ou a primeira ativa.
+    const chosen = str(fd, "unitId") ? await db.unit.findFirst({ where: { id: str(fd, "unitId"), active: true } }) : null;
+    const unit = chosen ?? (await db.unit.findFirstOrThrow({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }));
+    const active = id ? fd.get("active") === "on" : true;
+    // Limite do plano (Fase 2): conta profissionais ativos.
+    const current = id ? await db.professional.findFirst({ where: { id } }) : null;
+    if (active && !current?.active) await assertWithinPlan(tenant, "professionals");
     const pro = id
-      ? await db.professional.update({ where: { id }, data: { displayName: name, active: fd.get("active") === "on" } })
+      ? await db.professional.update({ where: { id }, data: { displayName: name, active, ...(chosen ? { unitId: chosen.id } : {}) } })
       : await db.professional.create({ data: { tenantId: tenant.id, unitId: unit.id, displayName: name } });
 
     // Horários: até 2 janelas por dia da semana.

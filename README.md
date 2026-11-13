@@ -37,6 +37,19 @@ Em dev, tudo roda com **mocks**: IA (`BRANDING_AI_PROVIDER=mock`), Pix (`PAYMENT
 
 Para usar o Claude na análise de marca: `BRANDING_AI_PROVIDER=anthropic` e `ANTHROPIC_API_KEY=…`.
 
+### Fase 2 em dev
+
+| Recurso | Como testar |
+|---|---|
+| Cadastro self-service | `/cadastro` |
+| Cupom | `BEMVINDA10` no Studio Ana Nails (10%) |
+| Lista de espera | Num dia sem horários, "Avise-me se abrir um horário"; cancele um agendamento e veja a mensagem `waitlist_offer` em Integrações |
+| Crédito em vez de reembolso | Configurações → Política do sinal → "Crédito para o próximo agendamento" |
+| Unidades | Painel → Unidades (o plano Essencial permite 1; troque para "Rede" no admin) |
+| Assinatura | Painel → Plano. Rode os jobs perto do fim do teste para gerar a fatura; botão "[dev] Simular pagamento" |
+| Instagram | `INSTAGRAM_PROVIDER=mock` → Marca → "importe fotos do seu Instagram" |
+| Domínio próprio | Configurações → Domínio próprio. Para testar o roteamento local: `curl -H "Host: seu.dominio" localhost:3000/` após verificar |
+
 ## Testes
 
 ```bash
@@ -51,7 +64,9 @@ Os testes de integração rodam contra Postgres real: concorrência de reservas,
 1. Crie um projeto com dois serviços: **PostgreSQL** e esta aplicação (deploy do GitHub). O `railway.json` define build, migrations no start e healthcheck (`/api/health`).
 2. Variáveis da aplicação: todas do `.env.example`, com `NODE_ENV=production`, `APP_URL` = domínio público, segredos fortes (`SESSION_SECRET`, `CREDENTIALS_KEY`, `JOBS_SECRET`, `PAYMENT_WEBHOOK_SECRET`) e `DATABASE_URL` referenciando o Postgres do projeto.
 3. **Jobs:** agende `POST /api/jobs/run` com `Authorization: Bearer $JOBS_SECRET` a cada minuto (cron externo) ou crie um serviço cron no Railway executando `npm run jobs:run`. Confira o intervalo mínimo suportado pelo Railway. A expiração de Pix também acontece dentro da transação de reserva, então a correção da agenda não depende do cron, mas as mensagens do WhatsApp sim.
-4. **Antes de produção**, veja [docs/tasks.md](docs/tasks.md): object storage (o disco do Railway é efêmero), PSP real, templates aprovados na Meta e teste de carga.
+4. **Domínio próprio**: depois que o dono verificar o domínio no painel, adicione-o como *custom domain* no serviço do Railway (é o que emite o HTTPS). Para hosts extras do próprio Amser, use `APP_HOSTS`.
+5. **Instagram**: app Meta do tipo Business, redirect URI `{APP_URL}/api/integrations/instagram/callback`, `INSTAGRAM_PROVIDER=meta`, `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET`. Atender contas de clientes exige Advanced Access (App Review).
+6. **Antes de produção**, veja [docs/tasks.md](docs/tasks.md): object storage (o disco do Railway é efêmero), PSPs reais (sinal e assinatura), templates aprovados na Meta e teste de carga.
 
 ## Estrutura
 

@@ -2,13 +2,15 @@ import type { Appointment, AppointmentStatus, Prisma, Tenant } from "@prisma/cli
 import { prisma, isOverlapViolation, tenantDb } from "../db";
 import { Errors, AppError } from "../errors";
 import { addMinutes, localDate, isValidDate, weekdayOf } from "../time";
-import { normalizePhoneBR } from "../format";
 import { computeSlots, dayBounds, type Interval } from "./availability";
 import { computeDepositCents, isWithinCancelWindow } from "./deposit";
+import { applySettlement, computeSettlement, creditBalance, processRefundSafe } from "./deposit-policy";
 import { paymentProvider } from "../payments/provider";
 import { decryptJson } from "../crypto";
 import { scheduleAppointmentMessagesSafe } from "../whatsapp/outbox";
 import { actionTokenExpiry, signActionToken } from "../tokens";
+import { upsertCustomer, parseCustomer, type CustomerInput } from "../customers";
+import { quoteCoupon, redeemCoupon, releaseCoupon } from "../coupons";
 
 export const ACTIVE_STATUSES: AppointmentStatus[] = ["aguardando_sinal", "pendente", "confirmado"];
 
@@ -17,8 +19,31 @@ export interface SlotOption {
   professionalIds: string[];
 }
 
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Libera efeitos colaterais de reservas que expiraram sem pagamento:
+ * devolve crédito usado e o uso do cupom. Chamado na mesma transação.
+ */
+export async function releaseExpiredSideEffects(tx: Tx, ids: string[]) {
+  if (!ids.length) return;
+  await tx.payment.updateMany({ where: { appointmentId: { in: ids }, status: "pending" }, data: { status: "expired" } });
+  const appts = await tx.appointment.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, tenantId: true, customerId: true, creditAppliedCents: true, couponId: true },
+  });
+  for (const a of appts) {
+    if (a.creditAppliedCents > 0) {
+      await tx.customerCredit.create({
+        data: { tenantId: a.tenantId, customerId: a.customerId, appointmentId: a.id, amountCents: a.creditAppliedCents, reason: "reserva expirada" },
+      });
+    }
+    if (a.couponId) await releaseCoupon(tx, a.couponId);
+  }
+}
+
 /** Expira reservas provisórias vencidas de um profissional (dentro da transação). */
-async function expireStaleHolds(tx: Prisma.TransactionClient, professionalId: string, now: Date) {
+async function expireStaleHolds(tx: Tx, professionalId: string, now: Date) {
   const stale = await tx.appointment.findMany({
     where: { professionalId, status: "aguardando_sinal", holdExpiresAt: { lt: now } },
     select: { id: true },
@@ -26,22 +51,31 @@ async function expireStaleHolds(tx: Prisma.TransactionClient, professionalId: st
   if (!stale.length) return;
   const ids = stale.map((s) => s.id);
   await tx.appointment.updateMany({ where: { id: { in: ids }, status: "aguardando_sinal" }, data: { status: "expirado" } });
-  await tx.payment.updateMany({ where: { appointmentId: { in: ids }, status: "pending" }, data: { status: "expired" } });
+  await releaseExpiredSideEffects(tx, ids);
+}
+
+/** Oferece um horário liberado para a lista de espera (sem acoplar os módulos). */
+export async function notifyFreedSlot(tenantId: string, professionalId: string, startsAt: Date) {
+  try {
+    const { offerFreedSlot } = await import("../waitlist");
+    await offerFreedSlot(tenantId, professionalId, startsAt);
+  } catch (err) {
+    console.error("[lista de espera] falha ao ofertar", err instanceof Error ? err.message : err);
+  }
 }
 
 /**
  * Disponibilidade de um serviço em uma data (§7). Se professionalId for null,
- * considera qualquer profissional habilitado.
+ * considera qualquer profissional habilitado (opcionalmente só de uma unidade).
  */
 export async function getAvailability(params: {
   tenant: Tenant;
   serviceId: string;
   professionalId: string | null;
+  unitId?: string | null;
   date: string;
   now?: Date;
-  /** Agendamento a ignorar (remarcação do próprio). */
   excludeAppointmentId?: string;
-  /** Agendamento manual pela recepção: ignora antecedência mínima. */
   ignoreAdvance?: boolean;
 }): Promise<SlotOption[]> {
   const { tenant, serviceId, date } = params;
@@ -55,8 +89,9 @@ export async function getAvailability(params: {
   });
   if (!service) throw Errors.notFound("Serviço");
 
-  let pros = service.professionals.map((sp) => sp.professional).filter((p) => p.active);
+  let pros = service.professionals.map((sp) => sp.professional).filter((p) => p.active && p.unit.active);
   if (params.professionalId) pros = pros.filter((p) => p.id === params.professionalId);
+  if (params.unitId) pros = pros.filter((p) => p.unitId === params.unitId);
   if (!pros.length) return [];
 
   const weekday = weekdayOf(date);
@@ -68,11 +103,7 @@ export async function getAvailability(params: {
     const [hours, exceptions, appts] = await Promise.all([
       db.workingHour.findMany({ where: { professionalId: pro.id, weekday } }),
       db.scheduleException.findMany({
-        where: {
-          OR: [{ professionalId: pro.id }, { professionalId: null }],
-          startsAt: { lt: bounds.end },
-          endsAt: { gt: bounds.start },
-        },
+        where: { OR: [{ professionalId: pro.id }, { professionalId: null }], startsAt: { lt: bounds.end }, endsAt: { gt: bounds.start } },
       }),
       db.appointment.findMany({
         where: {
@@ -108,17 +139,32 @@ export async function getAvailability(params: {
       result.set(k, [...(result.get(k) ?? []), pro.id]);
     }
   }
-  return [...result.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([k, ids]) => ({ startsAt: new Date(k).toISOString(), professionalIds: ids }));
+  return [...result.entries()].sort((a, b) => a[0] - b[0]).map(([k, ids]) => ({ startsAt: new Date(k).toISOString(), professionalIds: ids }));
+}
+
+/** Fuso usado para interpretar a data de um horário (unidade escolhida → profissional → primeira unidade). */
+async function resolveTimezone(tenant: Tenant, unitId?: string | null, professionalId?: string | null) {
+  const db = tenantDb(tenant.id);
+  if (unitId) {
+    const u = await db.unit.findFirst({ where: { id: unitId, active: true } });
+    if (!u) throw Errors.notFound("Unidade");
+    return u.timezone;
+  }
+  if (professionalId) {
+    const p = await db.professional.findFirst({ where: { id: professionalId }, include: { unit: true } });
+    if (p) return p.unit.timezone;
+  }
+  return (await db.unit.findFirst({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }))?.timezone ?? tenant.timezone;
 }
 
 export interface BookingInput {
   tenant: Tenant;
   serviceId: string;
   professionalId: string | null; // null = qualquer disponível
+  unitId?: string | null;
   startsAt: string; // ISO
-  customer: { name: string; phone: string; email?: string | null; consentWhatsapp: boolean };
+  customer: CustomerInput;
+  couponCode?: string | null;
   source: "public" | "manual";
   actorId?: string | null;
   /** Recepção pode registrar sem sinal (ex.: pago no balcão). */
@@ -130,19 +176,15 @@ export interface BookingResult {
   appointment: Appointment;
   token: string;
   payment: { amountCents: number; pixCopyPaste: string | null; expiresAt: Date } | null;
+  creditAppliedCents: number;
+  discountCents: number;
 }
 
 export async function createBooking(input: BookingInput): Promise<BookingResult> {
   const now = input.now ?? new Date();
   const { tenant } = input;
   if (tenant.status !== "active" && tenant.status !== "onboarding") throw Errors.policy("Agenda indisponível no momento");
-
-  const name = input.customer.name.trim();
-  if (name.length < 2 || name.length > 120) throw Errors.validation("Informe seu nome");
-  const phone = normalizePhoneBR(input.customer.phone);
-  if (!phone) throw Errors.validation("Telefone inválido. Use DDD + número.");
-  const email = input.customer.email?.trim() || null;
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Errors.validation("E-mail inválido");
+  parseCustomer(input.customer); // valida antes de qualquer escrita
 
   const startsAt = new Date(input.startsAt);
   if (Number.isNaN(startsAt.getTime())) throw Errors.validation("Horário inválido");
@@ -152,42 +194,49 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
   if (!service) throw Errors.notFound("Serviço");
 
   // Revalida no servidor: o horário precisa estar na disponibilidade atual.
-  const unitTz = (await db.unit.findFirst({ orderBy: { name: "asc" } }))?.timezone ?? tenant.timezone;
-  const date = localDate(startsAt, unitTz);
+  const tz = await resolveTimezone(tenant, input.unitId, input.professionalId);
   const options = await getAvailability({
     tenant,
     serviceId: service.id,
     professionalId: input.professionalId,
-    date,
+    unitId: input.unitId,
+    date: localDate(startsAt, tz),
     now,
     ignoreAdvance: input.source === "manual",
   });
   const option = options.find((o) => o.startsAt === startsAt.toISOString());
   if (!option) throw Errors.slotUnavailable();
 
-  const depositCents = input.skipDeposit ? 0 : computeDepositCents(service.priceCents, service.depositType, service.depositValue);
-  const status: AppointmentStatus = depositCents > 0 ? "aguardando_sinal" : "pendente";
+  const customer = await upsertCustomer(tenant.id, input.customer, input.source, now);
+
+  // Cupom (Fase 2): desconto sobre o preço; o sinal é calculado sobre o preço final.
+  let discountCents = 0;
+  let couponId: string | null = null;
+  if (input.couponCode?.trim()) {
+    const q = await quoteCoupon({ tenantId: tenant.id, code: input.couponCode, serviceId: service.id, priceCents: service.priceCents, customerId: customer.id, now });
+    discountCents = q.discountCents;
+    couponId = q.coupon.id;
+  }
+  const finalPrice = service.priceCents - discountCents;
+  const depositCents = input.skipDeposit ? 0 : computeDepositCents(finalPrice, service.depositType, service.depositValue);
   const endsAt = addMinutes(startsAt, service.durationMinutes);
   const blockEndsAt = addMinutes(endsAt, service.bufferMinutes);
 
-  // Cliente: deduplicação por telefone dentro do tenant (§10).
-  const existing = await db.customer.findFirst({ where: { phoneE164: phone } });
-  const consent = {
-    ...((existing?.consentJson as Record<string, unknown>) ?? {}),
-    whatsapp: input.customer.consentWhatsapp,
-    whatsappAt: now.toISOString(),
-    source: input.source,
-  };
-  const customer = existing
-    ? await db.customer.update({ where: { id: existing.id }, data: { name, email: email ?? existing.email, consentJson: consent } })
-    : await db.customer.create({ data: { tenantId: tenant.id, name, phoneE164: phone, email, consentJson: consent } });
-
   let appointment: Appointment | null = null;
+  let creditApplied = 0;
   for (const professionalId of option.professionalIds) {
     try {
-      appointment = await prisma.$transaction(async (tx) => {
+      const res = await prisma.$transaction(async (tx) => {
         await expireStaleHolds(tx, professionalId, now);
         const pro = await tx.professional.findFirstOrThrow({ where: { id: professionalId, tenantId: tenant.id } });
+        // Crédito do cliente (Fase 2) abate o sinal; o resto vai via Pix.
+        // FOR UPDATE serializa reservas simultâneas do mesmo cliente (sem gasto duplo de crédito).
+        if (depositCents > 0) await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customer.id} FOR UPDATE`;
+        const balance = depositCents > 0 ? await creditBalance(tx, tenant.id, customer.id) : 0;
+        const useCredit = Math.min(balance, depositCents);
+        const pixCents = depositCents - useCredit;
+        const status: AppointmentStatus = pixCents > 0 ? "aguardando_sinal" : depositCents > 0 ? "confirmado" : "pendente";
+        if (couponId) await redeemCoupon(tx, couponId);
         const created = await tx.appointment.create({
           data: {
             tenantId: tenant.id,
@@ -200,24 +249,33 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
             blockEndsAt,
             status,
             source: input.source,
-            priceSnapshotCents: service.priceCents,
+            priceSnapshotCents: finalPrice,
             depositAmountSnapshotCents: depositCents,
-            holdExpiresAt: depositCents > 0 ? addMinutes(now, tenant.holdMinutes) : null,
-            presenceDeadlineAt:
-              status === "pendente" ? new Date(startsAt.getTime() - tenant.presenceDeadlineHours * 3600_000) : null,
+            couponId,
+            discountCents,
+            creditAppliedCents: useCredit,
+            holdExpiresAt: pixCents > 0 ? addMinutes(now, tenant.holdMinutes) : null,
+            presenceDeadlineAt: status === "pendente" ? new Date(startsAt.getTime() - tenant.presenceDeadlineHours * 3600_000) : null,
           },
         });
+        if (useCredit > 0) {
+          await tx.customerCredit.create({
+            data: { tenantId: tenant.id, customerId: customer.id, appointmentId: created.id, amountCents: -useCredit, reason: "usado no sinal" },
+          });
+        }
         await tx.appointmentEvent.create({
           data: {
             tenantId: tenant.id,
             appointmentId: created.id,
             actorId: input.actorId ?? null,
             eventType: "created",
-            payloadJson: { status, source: input.source, depositCents },
+            payloadJson: { status, source: input.source, depositCents, creditApplied: useCredit, discountCents, couponId },
           },
         });
-        return created;
+        return { created, useCredit };
       });
+      appointment = res.created;
+      creditApplied = res.useCredit;
       break;
     } catch (err) {
       if (isOverlapViolation(err)) continue; // concorrência: tenta o próximo profissional
@@ -227,9 +285,10 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
   if (!appointment) throw Errors.slotTaken();
 
   const token = await signActionToken(appointment.id, tenant.id, actionTokenExpiry(startsAt));
+  const pixCents = depositCents - creditApplied;
 
   let payment: BookingResult["payment"] = null;
-  if (depositCents > 0) {
+  if (pixCents > 0) {
     const expiresAt = appointment.holdExpiresAt!;
     try {
       const conn = await db.paymentConnection.findFirst({ where: { status: "connected" } });
@@ -237,7 +296,7 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
       const charge = await provider.createPixCharge({
         tenantId: tenant.id,
         appointmentId: appointment.id,
-        amountCents: depositCents,
+        amountCents: pixCents,
         expiresAt,
         description: `Sinal ${service.name} — ${tenant.name}`,
         credentials: conn?.encryptedCredentials ? decryptJson(conn.encryptedCredentials) : null,
@@ -248,17 +307,17 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
           appointmentId: appointment.id,
           provider: provider.name,
           providerChargeId: charge.chargeId,
-          amountCents: depositCents,
+          amountCents: pixCents,
           pixCopyPaste: charge.pixCopyPaste,
           expiresAt,
         },
       });
-      payment = { amountCents: depositCents, pixCopyPaste: charge.pixCopyPaste, expiresAt };
+      payment = { amountCents: pixCents, pixCopyPaste: charge.pixCopyPaste, expiresAt };
     } catch (err) {
-      // Falha no PSP: libera o horário imediatamente.
-      await prisma.appointment.updateMany({
-        where: { id: appointment.id, status: "aguardando_sinal" },
-        data: { status: "expirado" },
+      // Falha no PSP: libera o horário imediatamente (e devolve crédito/cupom).
+      await prisma.$transaction(async (tx) => {
+        const r = await tx.appointment.updateMany({ where: { id: appointment!.id, status: "aguardando_sinal" }, data: { status: "expirado" } });
+        if (r.count) await releaseExpiredSideEffects(tx, [appointment!.id]);
       });
       console.error("[pagamento] falha ao criar cobrança", err instanceof Error ? err.message : err);
       throw new AppError("payment_unavailable", "Não foi possível gerar o Pix agora. Tente novamente em instantes.", 503);
@@ -268,7 +327,7 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
     await scheduleAppointmentMessagesSafe(appointment.id, "booked");
   }
 
-  return { appointment, token, payment };
+  return { appointment, token, payment, creditAppliedCents: creditApplied, discountCents };
 }
 
 type Actor = { kind: "customer" } | { kind: "staff"; userId: string };
@@ -282,14 +341,26 @@ async function loadAppointment(tenantId: string, appointmentId: string) {
   return appt;
 }
 
-/** Cancelamento (§8, §9). Dentro do prazo → sinal a reembolsar; fora → retido. */
+/**
+ * Cancelamento (§8, §9 e Fase 2):
+ *  - cliente dentro do prazo ou cancelamento pela empresa → sinal volta (reembolso ou crédito);
+ *  - cliente fora do prazo → retém `lateCancelRetainPercent` do sinal.
+ */
 export async function cancelAppointment(tenantId: string, appointmentId: string, actor: Actor, reason?: string, now = new Date()) {
   const appt = await loadAppointment(tenantId, appointmentId);
   if (!ACTIVE_STATUSES.includes(appt.status)) throw Errors.policy("Este agendamento não pode mais ser cancelado");
   if (actor.kind === "customer" && appt.startsAt <= now) throw Errors.policy("O horário já passou");
 
   const withinWindow = isWithinCancelWindow(appt.startsAt, appt.tenant.cancelLimitHours, now);
-  const paid = appt.payments.find((p) => p.status === "paid");
+  const paid = appt.payments.find((p) => p.status === "paid") ?? null;
+  const hasDeposit = !!paid || (appt.creditAppliedCents > 0 && appt.status !== "aguardando_sinal");
+  const late = actor.kind === "customer" && !withinWindow;
+  const retainPercent = late ? appt.tenant.lateCancelRetainPercent : 0;
+  // Cancelamento pela empresa sempre devolve em dinheiro (se houve Pix).
+  const mode = actor.kind === "staff" ? "refund" : appt.tenant.depositRefundMode;
+  const settlement = hasDeposit
+    ? computeSettlement({ pixPaidCents: paid?.amountCents ?? 0, creditAppliedCents: appt.creditAppliedCents, retainPercent, mode })
+    : null;
 
   await prisma.$transaction(async (tx) => {
     const res = await tx.appointment.updateMany({
@@ -297,14 +368,10 @@ export async function cancelAppointment(tenantId: string, appointmentId: string,
       data: { status: "cancelado", holdExpiresAt: null },
     });
     if (res.count !== 1) throw Errors.policy("Este agendamento não pode mais ser cancelado");
-    await tx.payment.updateMany({ where: { appointmentId: appt.id, status: "pending" }, data: { status: "expired" } });
-    if (paid) {
-      // Cliente fora do prazo: retido. Cancelamento pela empresa ou dentro do prazo: reembolso (manual no MVP).
-      const retain = actor.kind === "customer" && !withinWindow;
-      await tx.payment.update({
-        where: { id: paid.id },
-        data: retain ? { status: "retained" } : { needsRefund: true },
-      });
+    if (appt.status === "aguardando_sinal") {
+      await releaseExpiredSideEffects(tx, [appt.id]); // devolve crédito/cupom da reserva não paga
+    } else if (settlement) {
+      await applySettlement(tx, { tenantId, customerId: appt.customerId, appointmentId: appt.id, payment: paid, settlement, reason: "cancelamento" });
     }
     await tx.appointmentEvent.create({
       data: {
@@ -312,12 +379,20 @@ export async function cancelAppointment(tenantId: string, appointmentId: string,
         appointmentId: appt.id,
         actorId: actor.kind === "staff" ? actor.userId : null,
         eventType: "cancelled",
-        payloadJson: { by: actor.kind, withinWindow, reason: reason?.slice(0, 300) ?? null },
+        payloadJson: { by: actor.kind, withinWindow, reason: reason?.slice(0, 300) ?? null, settlement: settlement ? { ...settlement } : null },
       },
     });
   });
+  if (settlement?.refundCents) await processRefundSafe(paid?.id);
   await scheduleAppointmentMessagesSafe(appt.id, "cancelled");
-  return { withinWindow, depositRetained: !!paid && actor.kind === "customer" && !withinWindow };
+  await notifyFreedSlot(tenantId, appt.professionalId, appt.startsAt);
+  return {
+    withinWindow,
+    depositRetained: !!settlement && settlement.retainCents > 0,
+    retainedCents: settlement?.retainCents ?? 0,
+    creditedCents: settlement?.creditBackCents ?? 0,
+    refundCents: settlement?.refundCents ?? 0,
+  };
 }
 
 /**
@@ -360,6 +435,7 @@ export async function rescheduleAppointment(
   try {
     await prisma.$transaction(async (tx) => {
       await expireStaleHolds(tx, targetPro, now);
+      const target = await tx.professional.findFirstOrThrow({ where: { id: targetPro, tenantId } });
       const res = await tx.appointment.updateMany({
         where: { id: appt.id, tenantId, status: { in: ["pendente", "confirmado"] }, startsAt: appt.startsAt },
         data: {
@@ -367,6 +443,7 @@ export async function rescheduleAppointment(
           endsAt,
           blockEndsAt,
           professionalId: targetPro,
+          unitId: target.unitId,
           presenceDeadlineAt: new Date(newStart.getTime() - appt.tenant.presenceDeadlineHours * 3600_000),
         },
       });
@@ -386,6 +463,7 @@ export async function rescheduleAppointment(
     throw err;
   }
   await scheduleAppointmentMessagesSafe(appt.id, "rescheduled");
+  await notifyFreedSlot(tenantId, appt.professionalId, appt.startsAt);
 }
 
 export async function confirmPresence(tenantId: string, appointmentId: string, now = new Date()) {
@@ -397,30 +475,38 @@ export async function confirmPresence(tenantId: string, appointmentId: string, n
       where: { id: appt.id, tenantId, status: { in: ["pendente", "confirmado"] } },
       data: { status: "confirmado", confirmedPresenceAt: now },
     }),
-    prisma.appointmentEvent.create({
-      data: { tenantId, appointmentId: appt.id, eventType: "presence_confirmed", payloadJson: {} },
-    }),
+    prisma.appointmentEvent.create({ data: { tenantId, appointmentId: appt.id, eventType: "presence_confirmed", payloadJson: {} } }),
   ]);
 }
 
-/** Fechamento do atendimento pela equipe: concluído ou falta (§8, §9). */
-export async function markOutcome(
-  tenantId: string,
-  appointmentId: string,
-  outcome: "concluido" | "nao_compareceu",
-  userId: string,
-) {
+/**
+ * Fechamento do atendimento pela equipe (§8, §9, Fase 2).
+ * Concluído: sinal abatido do preço. Falta: retém `noShowRetainPercent`.
+ */
+export async function markOutcome(tenantId: string, appointmentId: string, outcome: "concluido" | "nao_compareceu", userId: string) {
   const appt = await loadAppointment(tenantId, appointmentId);
   if (appt.status !== "pendente" && appt.status !== "confirmado") throw Errors.policy("Agendamento não está ativo");
-  const paid = appt.payments.find((p) => p.status === "paid");
+  const paid = appt.payments.find((p) => p.status === "paid") ?? null;
+  const settlement =
+    outcome === "nao_compareceu" && (paid || appt.creditAppliedCents > 0)
+      ? computeSettlement({
+          pixPaidCents: paid?.amountCents ?? 0,
+          creditAppliedCents: appt.creditAppliedCents,
+          retainPercent: appt.tenant.noShowRetainPercent,
+          mode: appt.tenant.depositRefundMode,
+        })
+      : null;
   await prisma.$transaction(async (tx) => {
-    await tx.appointment.update({ where: { id: appt.id }, data: { status: outcome } });
-    if (paid) {
-      // Concluído: sinal abatido do preço. Falta: sinal retido.
-      await tx.payment.update({ where: { id: paid.id }, data: { status: outcome === "concluido" ? "applied" : "retained" } });
+    const r = await tx.appointment.updateMany({ where: { id: appt.id, tenantId, status: { in: ["pendente", "confirmado"] } }, data: { status: outcome } });
+    if (r.count !== 1) throw Errors.policy("Agendamento não está ativo");
+    if (outcome === "concluido" && paid) {
+      await tx.payment.update({ where: { id: paid.id }, data: { status: "applied" } });
+    } else if (settlement) {
+      await applySettlement(tx, { tenantId, customerId: appt.customerId, appointmentId: appt.id, payment: paid, settlement, reason: "falta" });
     }
     await tx.appointmentEvent.create({
-      data: { tenantId, appointmentId: appt.id, actorId: userId, eventType: outcome, payloadJson: {} },
+      data: { tenantId, appointmentId: appt.id, actorId: userId, eventType: outcome, payloadJson: settlement ? { settlement: { ...settlement } } : {} },
     });
   });
+  if (settlement?.refundCents) await processRefundSafe(paid?.id);
 }

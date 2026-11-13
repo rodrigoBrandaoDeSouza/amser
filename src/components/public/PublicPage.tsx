@@ -1,6 +1,6 @@
 import type { Tenant } from "@prisma/client";
 import type { Theme } from "@/lib/branding/theme";
-import type { PublicService } from "@/lib/public";
+import type { PublicService, PublicUnit } from "@/lib/public";
 import { ThemeShell } from "./ThemeShell";
 import { BookingFlow } from "./BookingFlow";
 import { localDate } from "@/lib/time";
@@ -12,6 +12,7 @@ export function PublicPage({
   policy,
   mode,
   logoMediaId,
+  units = [],
 }: {
   tenant: Tenant;
   theme: Theme;
@@ -19,6 +20,7 @@ export function PublicPage({
   policy: string;
   mode: "live" | "preview";
   logoMediaId?: string | null;
+  units?: PublicUnit[];
 }) {
   const hero = theme.heroMediaId;
   const alt = (id: string) => theme.accessibility.altTexts[id] ?? `Foto de ${tenant.name}`;
@@ -73,6 +75,8 @@ export function PublicPage({
             today={localDate(new Date(), tenant.timezone)}
             timeZone={tenant.timezone}
             cardStyle={theme.elements.cardStyle}
+            units={units}
+            waitlistEnabled={tenant.waitlistEnabled && mode === "live"}
           />
         </section>
 
@@ -91,7 +95,15 @@ export function PublicPage({
         <section className="pt-12">
           <h2 className="mb-3 text-xl font-semibold">Contato</h2>
           <div className="pub-card space-y-1 p-4 text-sm" data-style={theme.elements.cardStyle}>
-            {tenant.address && <p>{tenant.address}</p>}
+            {units.length > 1
+              ? units.map((u) => (
+                  <p key={u.id}>
+                    <strong>{u.name}</strong>
+                    {u.address ? ` — ${u.address}` : ""}
+                    {u.phone ? ` · ${u.phone}` : ""}
+                  </p>
+                ))
+              : (units[0]?.address ?? tenant.address) && <p>{units[0]?.address ?? tenant.address}</p>}
             {tenant.phone && <p>Telefone: {tenant.phone}</p>}
             <div className="flex flex-wrap gap-3 pt-2">
               {whatsapp && (

@@ -69,6 +69,7 @@ enum PaymentStatus {
   refunded
   retained
   applied
+  credited
 }
 
 enum ConnectionStatus {
@@ -85,6 +86,7 @@ enum MessageEvent {
   presence_request
   rescheduled
   cancelled
+  waitlist_offer
 }
 
 enum OutboxStatus {
@@ -97,6 +99,30 @@ enum OutboxStatus {
   skipped
 }
 
+enum DepositRefundMode {
+  refund
+  credit
+}
+
+enum WaitlistStatus {
+  waiting
+  offered
+  booked
+  expired
+  cancelled
+}
+
+enum DiscountType {
+  percent
+  fixed
+}
+
+enum InvoiceStatus {
+  open
+  paid
+  void
+}
+
 enum SubscriptionStatus {
   trialing
   active
@@ -105,62 +131,76 @@ enum SubscriptionStatus {
 }
 
 model Plan {
-  id           String         @id @default(cuid())
-  name         String
-  limitsJson   Json           @default("{}") @map("limits_json")
-  messageQuota Int            @default(300) @map("message_quota")
-  priceCents   Int            @map("price_cents")
-  tenants      Tenant[]
+  id            String         @id @default(cuid())
+  name          String
+  limitsJson    Json           @default("{}") @map("limits_json")
+  messageQuota  Int            @default(300) @map("message_quota")
+  priceCents    Int            @map("price_cents")
+  tenants       Tenant[]
   subscriptions Subscription[]
 
   @@map("plans")
 }
 
 model Tenant {
-  id                     String       @id @default(cuid())
-  name                   String
-  slug                   String       @unique
-  segment                String
-  status                 TenantStatus @default(onboarding)
-  planId                 String?      @map("plan_id")
-  plan                   Plan?        @relation(fields: [planId], references: [id])
-  timezone               String       @default("America/Sao_Paulo")
-  description            String?
-  phone                  String?
-  whatsappContact        String?      @map("whatsapp_contact")
-  address                String?
-  instagramHandle        String?      @map("instagram_handle")
+  id                      String            @id @default(cuid())
+  name                    String
+  slug                    String            @unique
+  segment                 String
+  status                  TenantStatus      @default(onboarding)
+  planId                  String?           @map("plan_id")
+  plan                    Plan?             @relation(fields: [planId], references: [id])
+  timezone                String            @default("America/Sao_Paulo")
+  description             String?
+  phone                   String?
+  whatsappContact         String?           @map("whatsapp_contact")
+  address                 String?
+  instagramHandle         String?           @map("instagram_handle")
   // Prévia para prospect (§4.1)
-  previewToken           String?      @unique @map("preview_token")
-  previewExpiresAt       DateTime?    @map("preview_expires_at") @db.Timestamptz(3)
+  previewToken            String?           @unique @map("preview_token")
+  previewExpiresAt        DateTime?         @map("preview_expires_at") @db.Timestamptz(3)
   // Políticas de agenda (§8)
-  minAdvanceMinutes      Int          @default(60) @map("min_advance_minutes")
-  maxHorizonDays         Int          @default(60) @map("max_horizon_days")
-  cancelLimitHours       Int          @default(24) @map("cancel_limit_hours")
-  lateToleranceMinutes   Int          @default(10) @map("late_tolerance_minutes")
-  slotStepMinutes        Int          @default(15) @map("slot_step_minutes")
+  minAdvanceMinutes       Int               @default(60) @map("min_advance_minutes")
+  maxHorizonDays          Int               @default(60) @map("max_horizon_days")
+  cancelLimitHours        Int               @default(24) @map("cancel_limit_hours")
+  lateToleranceMinutes    Int               @default(10) @map("late_tolerance_minutes")
+  slotStepMinutes         Int               @default(15) @map("slot_step_minutes")
   // Sinal (§9)
-  holdMinutes            Int          @default(15) @map("hold_minutes")
+  holdMinutes             Int               @default(15) @map("hold_minutes")
   // Confirmação de presença (§8)
-  presenceRequestHours   Int          @default(24) @map("presence_request_hours")
-  presenceDeadlineHours  Int          @default(3) @map("presence_deadline_hours")
-  autoReleaseUnconfirmed Boolean      @default(false) @map("auto_release_unconfirmed")
-  reminderHours          Int[]        @default([2]) @map("reminder_hours")
-  cancellationPolicyText String?      @map("cancellation_policy_text")
-  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  presenceRequestHours    Int               @default(24) @map("presence_request_hours")
+  presenceDeadlineHours   Int               @default(3) @map("presence_deadline_hours")
+  autoReleaseUnconfirmed  Boolean           @default(false) @map("auto_release_unconfirmed")
+  reminderHours           Int[]             @default([2]) @map("reminder_hours")
+  cancellationPolicyText  String?           @map("cancellation_policy_text")
+  // Fase 2 — políticas avançadas de sinal
+  depositRefundMode       DepositRefundMode @default(refund) @map("deposit_refund_mode")
+  lateCancelRetainPercent Int               @default(100) @map("late_cancel_retain_percent")
+  noShowRetainPercent     Int               @default(100) @map("no_show_retain_percent")
+  waitlistEnabled         Boolean           @default(true) @map("waitlist_enabled")
+  // Fase 2 — suspensão por cobrança
+  suspendedReason         String?           @map("suspended_reason")
+  statusBeforeSuspension  TenantStatus?     @map("status_before_suspension")
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  branding           TenantBranding[]
-  media              TenantMedia[]
-  units              Unit[]
-  users              User[]
-  professionals      Professional[]
-  categories         ServiceCategory[]
-  services           Service[]
-  customers          Customer[]
-  appointments       Appointment[]
-  paymentConnections PaymentConnection[]
+  branding            TenantBranding[]
+  media               TenantMedia[]
+  units               Unit[]
+  users               User[]
+  professionals       Professional[]
+  categories          ServiceCategory[]
+  services            Service[]
+  customers           Customer[]
+  appointments        Appointment[]
+  paymentConnections  PaymentConnection[]
   whatsappConnections WhatsappConnection[]
-  subscriptions      Subscription[]
+  subscriptions       Subscription[]
+  domains             TenantDomain[]
+  coupons             Coupon[]
+  waitlist            WaitlistEntry[]
+  credits             CustomerCredit[]
+  invoices            BillingInvoice[]
+  instagram           InstagramConnection?
 
   @@index([status])
   @@map("tenants")
@@ -198,14 +238,18 @@ model TenantMedia {
 }
 
 model Unit {
-  id            String         @id @default(cuid())
-  tenantId      String         @map("tenant_id")
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id            String          @id @default(cuid())
+  tenantId      String          @map("tenant_id")
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name          String
   address       String?
-  timezone      String         @default("America/Sao_Paulo")
+  timezone      String          @default("America/Sao_Paulo")
+  phone         String?
+  active        Boolean         @default(true)
+  sortOrder     Int             @default(0) @map("sort_order")
   professionals Professional[]
   appointments  Appointment[]
+  waitlist      WaitlistEntry[]
 
   @@index([tenantId])
   @@map("units")
@@ -228,19 +272,19 @@ model User {
 }
 
 model Professional {
-  id            String                @id @default(cuid())
-  tenantId      String                @map("tenant_id")
-  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId        String?               @unique @map("user_id")
-  user          User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
-  unitId        String                @map("unit_id")
-  unit          Unit                  @relation(fields: [unitId], references: [id])
-  displayName   String                @map("display_name")
-  active        Boolean               @default(true)
-  services      ServiceProfessional[]
-  workingHours  WorkingHour[]
-  exceptions    ScheduleException[]
-  appointments  Appointment[]
+  id           String                @id @default(cuid())
+  tenantId     String                @map("tenant_id")
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String?               @unique @map("user_id")
+  user         User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  unitId       String                @map("unit_id")
+  unit         Unit                  @relation(fields: [unitId], references: [id])
+  displayName  String                @map("display_name")
+  active       Boolean               @default(true)
+  services     ServiceProfessional[]
+  workingHours WorkingHour[]
+  exceptions   ScheduleException[]
+  appointments Appointment[]
 
   @@index([tenantId])
   @@map("professionals")
@@ -275,6 +319,7 @@ model Service {
   active          Boolean               @default(true)
   professionals   ServiceProfessional[]
   appointments    Appointment[]
+  waitlist        WaitlistEntry[]
 
   @@index([tenantId, active])
   @@map("services")
@@ -321,17 +366,19 @@ model ScheduleException {
 }
 
 model Customer {
-  id           String        @id @default(cuid())
-  tenantId     String        @map("tenant_id")
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id           String           @id @default(cuid())
+  tenantId     String           @map("tenant_id")
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
-  phoneE164    String        @map("phone_e164")
+  phoneE164    String           @map("phone_e164")
   email        String?
   notes        String?
-  tags         String[]      @default([])
-  consentJson  Json          @default("{}") @map("consent_json")
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  tags         String[]         @default([])
+  consentJson  Json             @default("{}") @map("consent_json")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   appointments Appointment[]
+  credits      CustomerCredit[]
+  waitlist     WaitlistEntry[]
 
   @@unique([tenantId, phoneE164])
   @@map("customers")
@@ -357,6 +404,10 @@ model Appointment {
   source                     AppointmentSource  @default(public)
   priceSnapshotCents         Int                @map("price_snapshot_cents")
   depositAmountSnapshotCents Int                @default(0) @map("deposit_amount_snapshot_cents")
+  couponId                   String?            @map("coupon_id")
+  coupon                     Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  discountCents              Int                @default(0) @map("discount_cents")
+  creditAppliedCents         Int                @default(0) @map("credit_applied_cents")
   holdExpiresAt              DateTime?          @map("hold_expires_at") @db.Timestamptz(3)
   confirmedPresenceAt        DateTime?          @map("confirmed_presence_at") @db.Timestamptz(3)
   presenceDeadlineAt         DateTime?          @map("presence_deadline_at") @db.Timestamptz(3)
@@ -365,6 +416,7 @@ model Appointment {
   events                     AppointmentEvent[]
   payments                   Payment[]
   messages                   MessageOutbox[]
+  credits                    CustomerCredit[]
 
   @@index([tenantId, startsAt])
   @@index([tenantId, status])
@@ -414,6 +466,10 @@ model Payment {
   refundedAt       DateTime?     @map("refunded_at") @db.Timestamptz(3)
   // pagamento chegou depois do horário expirar: exige reembolso manual
   needsRefund      Boolean       @default(false) @map("needs_refund")
+  retainedCents    Int           @default(0) @map("retained_cents")
+  refundedCents    Int           @default(0) @map("refunded_cents")
+  creditedCents    Int           @default(0) @map("credited_cents")
+  providerRefundId String?       @map("provider_refund_id")
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([tenantId, status])
@@ -499,8 +555,13 @@ model Subscription {
   status      SubscriptionStatus
   periodStart DateTime           @map("period_start") @db.Timestamptz(3)
   periodEnd   DateTime           @map("period_end") @db.Timestamptz(3)
+  trialEndsAt DateTime?          @map("trial_ends_at") @db.Timestamptz(3)
+  graceUntil  DateTime?          @map("grace_until") @db.Timestamptz(3)
+  canceledAt  DateTime?          @map("canceled_at") @db.Timestamptz(3)
+  invoices    BillingInvoice[]
 
   @@index([tenantId])
+  @@index([status, periodEnd])
   @@map("subscriptions")
 }
 
@@ -515,4 +576,118 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+// ============================== Fase 2 ==============================
+
+/// Domínio próprio do tenant (verificado por registro TXT).
+model TenantDomain {
+  id                String    @id @default(cuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hostname          String    @unique
+  verificationToken String    @map("verification_token")
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([tenantId])
+  @@map("tenant_domains")
+}
+
+model Coupon {
+  id               String        @id @default(cuid())
+  tenantId         String        @map("tenant_id")
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code             String
+  discountType     DiscountType  @map("discount_type")
+  /// percent: 1–100; fixed: centavos
+  discountValue    Int           @map("discount_value")
+  serviceIds       String[]      @default([]) @map("service_ids")
+  validFrom        DateTime?     @map("valid_from") @db.Timestamptz(3)
+  validUntil       DateTime?     @map("valid_until") @db.Timestamptz(3)
+  maxRedemptions   Int?          @map("max_redemptions")
+  redemptionsCount Int           @default(0) @map("redemptions_count")
+  maxPerCustomer   Int           @default(1) @map("max_per_customer")
+  active           Boolean       @default(true)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  appointments     Appointment[]
+
+  @@unique([tenantId, code])
+  @@map("coupons")
+}
+
+/// Razão de créditos do cliente (sinal convertido em crédito). Saldo = soma.
+model CustomerCredit {
+  id            String       @id @default(cuid())
+  tenantId      String       @map("tenant_id")
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId    String       @map("customer_id")
+  customer      Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amountCents   Int          @map("amount_cents")
+  reason        String
+  appointmentId String?      @map("appointment_id")
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([tenantId, customerId])
+  @@map("customer_credits")
+}
+
+model WaitlistEntry {
+  id                  String         @id @default(cuid())
+  tenantId            String         @map("tenant_id")
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId          String         @map("customer_id")
+  customer            Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceId           String         @map("service_id")
+  service             Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  professionalId      String?        @map("professional_id")
+  unitId              String?        @map("unit_id")
+  unit                Unit?          @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  /// "YYYY-MM-DD" no fuso da unidade
+  date                String
+  status              WaitlistStatus @default(waiting)
+  offeredAt           DateTime?      @map("offered_at") @db.Timestamptz(3)
+  offersCount         Int            @default(0) @map("offers_count")
+  bookedAppointmentId String?        @map("booked_appointment_id")
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([tenantId, date, status])
+  @@map("waitlist_entries")
+}
+
+model BillingInvoice {
+  id               String        @id @default(cuid())
+  tenantId         String        @map("tenant_id")
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId   String        @map("subscription_id")
+  subscription     Subscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  amountCents      Int           @map("amount_cents")
+  periodStart      DateTime      @map("period_start") @db.Timestamptz(3)
+  periodEnd        DateTime      @map("period_end") @db.Timestamptz(3)
+  dueAt            DateTime      @map("due_at") @db.Timestamptz(3)
+  status           InvoiceStatus @default(open)
+  provider         String
+  providerChargeId String        @unique @map("provider_charge_id")
+  pixCopyPaste     String?       @map("pix_copy_paste")
+  paidAt           DateTime?     @map("paid_at") @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([subscriptionId, periodStart])
+  @@index([tenantId, status])
+  @@map("billing_invoices")
+}
+
+model InstagramConnection {
+  id             String    @id @default(cuid())
+  tenantId       String    @unique @map("tenant_id")
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  igUserId       String    @map("ig_user_id")
+  username       String
+  encryptedToken String    @map("encrypted_token")
+  tokenExpiresAt DateTime  @map("token_expires_at") @db.Timestamptz(3)
+  connectedAt    DateTime  @default(now()) @map("connected_at") @db.Timestamptz(3)
+  refreshedAt    DateTime? @map("refreshed_at") @db.Timestamptz(3)
+
+  @@map("instagram_connections")
 }

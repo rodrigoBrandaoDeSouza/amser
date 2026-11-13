@@ -101,7 +101,12 @@ export function ManageAppointment(props: {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.message ?? "Não foi possível concluir");
-      setMsg(j.depositRetained ? `${done} O sinal fica retido conforme a política.` : done);
+      const brl = (c: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(c / 100);
+      const parts = [done];
+      if (j.retainedCents > 0) parts.push(`${brl(j.retainedCents)} do sinal fica retido conforme a política.`);
+      if (j.creditedCents > 0) parts.push(`${brl(j.creditedCents)} viraram crédito para o seu próximo agendamento.`);
+      if (j.refundCents > 0) parts.push(`${brl(j.refundCents)} serão devolvidos no seu Pix.`);
+      setMsg(parts.join(" "));
       setMode("view");
       router.refresh();
     } catch (e) {

@@ -62,3 +62,21 @@ ALTER TABLE appointments ADD CONSTRAINT appointments_valid_range
 
 - Dev: `npm run db:migrate` (cria e aplica). Produção: `npm run db:deploy`.
 - Nunca editar uma migration já aplicada; criar uma nova.
+
+## Fase 2 (migrations `fase2` e `fase2_backfill`)
+
+| Tabela / campo | Notas |
+|---|---|
+| `tenants.deposit_refund_mode`, `late_cancel_retain_percent`, `no_show_retain_percent`, `waitlist_enabled` | Política de sinal e lista de espera. |
+| `tenants.suspended_reason`, `status_before_suspension` | Suspensão por cobrança é reversível pelo pagamento; por admin, não. |
+| `units.active`, `phone`, `sort_order` | Múltiplas unidades. |
+| `appointments.coupon_id`, `discount_cents`, `credit_applied_cents` | `price_snapshot_cents` já é o preço com desconto. |
+| `payments.retained_cents`, `refunded_cents`, `credited_cents`, `provider_refund_id`; status `credited` | Liquidação parcial do sinal. |
+| `coupons` | Único por `(tenant_id, code)`. `redemptions_count` atualizado com `UPDATE … WHERE redemptions_count < max_redemptions` (atômico). |
+| `customer_credits` | Razão (positivo = crédito, negativo = uso). Saldo = soma. |
+| `waitlist_entries` | `date` local; status `waiting → offered → booked/expired/cancelled`; `offers_count` ≤ 3. |
+| `subscriptions.trial_ends_at`, `grace_until`, `canceled_at` | Ciclo de cobrança. |
+| `billing_invoices` | Uma por `(subscription_id, period_start)`; `provider_charge_id` único. |
+| `tenant_domains` | `hostname` único global; `verified_at` após o TXT. |
+| `instagram_connections` | Uma por tenant; token criptografado; `token_expires_at` (60 dias). |
+| `MessageEvent.waitlist_offer` | Novo evento do outbox. |

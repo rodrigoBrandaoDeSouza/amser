@@ -57,3 +57,21 @@ Status de entrega. Header `X-Hub-Signature-256` validado com `WHATSAPP_APP_SECRE
 | `GET /preview/{token}` | página `/preview/{token}` |
 | `/appointments/{id}/confirm|reschedule|cancel` | `/api/public/appointments/{token}` (cliente) e server actions (equipe) |
 | `GET /dashboard/*` | páginas `/painel/*` |
+
+## Fase 2
+
+| Rota | Uso |
+|---|---|
+| `GET /api/public/{slug}/availability?…&unitId=` | Filtra por unidade (múltiplas unidades). |
+| `POST /api/public/{slug}/appointments` | Aceita `unitId` e `couponCode`; resposta inclui `discountCents` e `creditAppliedCents` (sem `payment` quando o crédito cobre o sinal). |
+| `GET /api/public/{slug}/coupon?code=&serviceId=` | Prévia do desconto (não consome). 15 req/10 min por IP. |
+| `POST /api/public/{slug}/waitlist` | Entrar na lista de espera `{ serviceId, professionalId, unitId?, date, customer }`. Exige opt-in. |
+| `GET /api/public/waitlist/{token}` | Horários disponíveis para a oferta. |
+| `POST /api/public/waitlist/{token}` | `{ startsAt }` → reserva com os dados da entrada; `201 { token }`. |
+| `POST /api/public/appointments/{token}` `cancel` | Resposta: `{ withinWindow, retainedCents, creditedCents, refundCents }`. |
+| `POST /api/integrations/billing/{provider}/webhook` | Pagamento de fatura da assinatura. Assinado (mock: `x-amser-signature` com `BILLING_WEBHOOK_SECRET`), idempotente. |
+| `GET /api/integrations/instagram/connect` | Inicia o Instagram Login (dono logado). |
+| `GET /api/integrations/instagram/callback` | Retorno do OAuth; valida state assinado + cookie + usuário. |
+| `POST /api/dev/simulate-billing` | **Somente dev**: paga a fatura aberta do tenant logado. |
+
+Páginas novas: `/cadastro` (self-service), `/w/{token}` (oferta da lista de espera), `/d/{host}` (domínio próprio, via middleware), `/painel/{unidades,cupons,lista-de-espera,plano,marca/instagram}`.

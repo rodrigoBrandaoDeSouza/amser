@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { requireTenantUser } from "@/lib/auth/session";
+import { instagramProvider } from "@/lib/instagram/provider";
 import { Badge, Button, Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
@@ -49,6 +51,11 @@ export default async function BrandPage({ searchParams }: { searchParams: Search
               </label>
               <SubmitButton variant="secondary" pendingText="Enviando…">Enviar imagens</SubmitButton>
             </form>
+            {instagramProvider() && (
+              <p className="mt-3 text-sm">
+                Ou <Link href="/painel/marca/instagram" className="font-medium underline">importe fotos do seu Instagram</Link>.
+              </p>
+            )}
           </Card>
 
           <Card title="2. Gerar tema com IA">

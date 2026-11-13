@@ -30,6 +30,9 @@ export default function Home() {
       <p className="mt-4 max-w-xl text-lg text-zinc-600">
         Pronta em 10 minutos e que se paga cortando as faltas. Sem comissão, sem taxa escondida de WhatsApp.
       </p>
+      <Link href="/cadastro" className="mt-6 inline-flex rounded-lg bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-700">
+        Criar minha página grátis
+      </Link>
       <div className="mt-12 grid gap-4 sm:grid-cols-3">
         {PILLARS.map((p) => (
           <div key={p.title} className="rounded-xl border border-zinc-200 bg-white p-5">

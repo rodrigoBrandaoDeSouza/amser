@@ -29,6 +29,14 @@ export interface PaymentProvider {
   }): Promise<PixCharge>;
   /** Valida assinatura e interpreta o webhook. Lança erro se a assinatura for inválida. */
   parseWebhook(rawBody: string, headers: Headers): PaymentWebhookEvent | null;
+  /** Reembolso (total ou parcial) de uma cobrança Pix. Fase 2. */
+  refund?(input: { chargeId: string; amountCents: number; credentials: unknown }): Promise<{ refundId: string }>;
+}
+
+/** Em testes: força falha nos próximos N reembolsos do mock. */
+let mockRefundFailures = 0;
+export function mockRefundFailNext(n: number) {
+  mockRefundFailures = n;
 }
 
 export class InvalidSignatureError extends Error {}
@@ -53,6 +61,13 @@ export const mockPaymentProvider: PaymentProvider = {
     const body = JSON.parse(rawBody) as { id?: string; chargeId?: string; status?: string };
     if (!body.id || !body.chargeId || (body.status !== "paid" && body.status !== "expired")) return null;
     return { eventId: body.id, chargeId: body.chargeId, status: body.status };
+  },
+  async refund({ chargeId }) {
+    if (mockRefundFailures > 0) {
+      mockRefundFailures--;
+      throw new Error("falha simulada no reembolso");
+    }
+    return { refundId: `mock_refund_${chargeId}_${randomToken(6)}` };
   },
 };
 

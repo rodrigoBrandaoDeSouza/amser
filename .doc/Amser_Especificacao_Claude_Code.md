@@ -1,7 +1,8 @@
 # Amser — SaaS Multi-Tenant de Agendamentos com Identidade Visual por IA
-**Especificação funcional e técnica — versão 1.1**  
+**Especificação funcional e técnica — versão 1.2**  
 **Objetivo:** documento de implementação para Claude Code.  
-**Mudanças da v1.1:** posicionamento e diferencial (§2), entrega faseada (§3), sinal via Pix no MVP (§9), prévia para prospect (§4.1), métricas de faltas (§11), WhatsApp incluído no plano (§10) e critérios de aceite revisados (§20). Base: [analise-concorrencia.md](analise-concorrencia.md).
+**Mudanças da v1.1:** posicionamento e diferencial (§2), entrega faseada (§3), sinal via Pix no MVP (§9), prévia para prospect (§4.1), métricas de faltas (§11), WhatsApp incluído no plano (§10) e critérios de aceite revisados (§20). Base: [analise-concorrencia.md](analise-concorrencia.md).  
+**Mudanças da v1.2:** Fase 2 implementada (§3), com o detalhamento e as pendências externas na própria seção. Decisões técnicas em `docs/adr/0006`–`0010`.
 
 ## 1. Visão do produto
 Criar uma plataforma SaaS white-label de agendamentos para profissionais autônomos e empresas de serviços com hora marcada: barbearias, salões de beleza, nail designers, designers de sobrancelhas, estúdios de estética, massagistas e outros segmentos configuráveis.
@@ -45,13 +46,51 @@ O mercado já oferece agenda online, link na bio, lembrete por WhatsApp e págin
 9. Dashboard básico com **métricas de faltas** (§11) e trilha de auditoria.
 10. Teste de carga simulando pico (sábado de manhã).
 
-### Fase 2 — Crescimento
-- Integração oficial com o Instagram (Instagram Login / `instagram_business_basic`) para importar mídia, quando permitida e após App Review da Meta.
-- Assinatura do SaaS automatizada (cobrança recorrente, trial, inadimplência).
-- Lista de espera que oferece automaticamente o horário liberado (reforça o pilar 2).
-- Múltiplas unidades, domínio próprio e cupons.
-- Políticas avançadas de sinal: crédito para remarcação, retenção parcial e reembolso automático.
-- Onboarding self-service (o dono gera a própria prévia sem o superadmin), se a Fase 0 indicar demanda.
+### Fase 2 — Crescimento (implementada na v1.2)
+- ✅ **Lista de espera** (pilar 2). O cliente entra na fila de um dia lotado (exige opt-in do WhatsApp; máx. 3 listas ativas por cliente). Quando um horário é liberado (cancelamento, Pix expirado, falta de confirmação, remarcação), os 3 primeiros compatíveis recebem um link no WhatsApp. Quem reservar primeiro garante (a exclusion constraint resolve a disputa). As entradas de dias passados expiram.
+- ✅ **Políticas avançadas de sinal** (pilar 2):
+  - devolução por reembolso automático no PSP ou por crédito para o próximo agendamento;
+  - retenção parcial configurável para cancelamento tardio e para falta;
+  - o crédito abate o sinal na próxima reserva, com confirmação imediata se cobrir tudo;
+  - o reembolso que falhar é tentado de novo pelo job e, se continuar falhando, fica para reembolso manual.
+- ✅ **Cupons**:
+  - percentual ou valor fixo, com validade e limite total e por cliente;
+  - restrição opcional por serviço;
+  - o sinal é calculado sobre o preço com desconto;
+  - o limite de usos vale mesmo sob concorrência, e o uso é devolvido se o Pix expirar.
+- ✅ **Múltiplas unidades**:
+  - unidade com fuso próprio e profissional vinculado a uma unidade;
+  - o cliente escolhe a unidade na página quando houver 2 ou mais;
+  - agenda filtrada por unidade;
+  - limite de unidades e de profissionais conforme o plano.
+- ✅ **Domínio próprio**:
+  - posse comprovada por registro TXT (`_amser-verify.<domínio>`) e roteamento por host (middleware);
+  - URL canônica no domínio do cliente;
+  - painel e admin só no domínio do Amser.
+  - ⚠️ O certificado HTTPS depende de adicionar o domínio ao serviço no Railway (manual ou via API).
+- ✅ **Assinatura do SaaS**:
+  - teste de 14 dias e fatura gerada 5 dias antes do vencimento;
+  - `past_due` com 5 dias de tolerância, depois suspensão automática;
+  - pagamento reativa a empresa, mas só reverte suspensão por cobrança, nunca por decisão do admin;
+  - MRR e inadimplência no superadmin; troca de plano vale na próxima fatura.
+  - ⚠️ O PSP de cobrança ainda é mock (decisão da Fase 0).
+- ✅ **Instagram oficial**:
+  - Instagram Login com `instagram_business_basic`, token longo de 60 dias com renovação automática;
+  - importação só de imagens escolhidas pelo dono;
+  - download apenas de CDNs da Meta (anti-SSRF).
+  - ⚠️ Em produção exige app do tipo Business e Advanced Access com App Review. Até lá, `INSTAGRAM_PROVIDER=off` e upload manual.
+- ✅ **Cadastro self-service** (`/cadastro`):
+  - o dono cria a conta, entra em teste e já pode mandar fotos para a IA sugerir o tema;
+  - proteção com honeypot e rate limit por IP;
+  - pode ser desligado com `SELF_SIGNUP_ENABLED=false`.
+  - ⚠️ Ainda não há verificação de e-mail.
+
+**Pendências externas da Fase 2:**
+- PSP real para o sinal e para a cobrança da assinatura;
+- reembolso real via API do PSP;
+- App Review da Meta (Instagram);
+- automação do HTTPS de domínios no Railway;
+- provedor de e-mail para verificação de conta.
 
 ### Fase 3 — Expansão
 - Chatbot no WhatsApp (identificar cliente, consultar horários, criar e remarcar com confirmação explícita, transferir para humano). Não é diferencial: entra apenas como paridade de mercado.

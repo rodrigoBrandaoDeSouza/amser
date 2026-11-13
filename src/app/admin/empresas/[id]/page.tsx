@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/db";
-import { Badge, Button, Card, Field, Flash, Input, PageHeader, Textarea } from "@/components/ui";
+import { Badge, Button, Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
+import { formatBRL } from "@/lib/format";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { env } from "@/lib/env";
 import { ThemeSchema } from "@/lib/branding/theme";
 import {
+  changePlanAction,
   convertProspectAction,
   deleteProspectAction,
   extendPreviewAction,
@@ -29,7 +31,13 @@ export default async function TenantDetail({ params, searchParams }: { params: P
     },
   });
   if (!tenant) notFound();
-  const logs = await prisma.auditLog.findMany({ where: { tenantId: id }, orderBy: { createdAt: "desc" }, take: 15 });
+  const [logs, sub, invoices, plans, domains] = await Promise.all([
+    prisma.auditLog.findMany({ where: { tenantId: id }, orderBy: { createdAt: "desc" }, take: 15 }),
+    prisma.subscription.findFirst({ where: { tenantId: id }, include: { plan: true }, orderBy: { periodEnd: "desc" } }),
+    prisma.billingInvoice.findMany({ where: { tenantId: id }, orderBy: { dueAt: "desc" }, take: 6 }),
+    prisma.plan.findMany({ orderBy: { priceCents: "asc" } }),
+    prisma.tenantDomain.findMany({ where: { tenantId: id } }),
+  ]);
 
   const isProspect = tenant.status === "prospect";
   const previewUrl = tenant.previewToken ? `${env().APP_URL}/preview/${tenant.previewToken}` : null;
@@ -139,6 +147,38 @@ export default async function TenantDetail({ params, searchParams }: { params: P
                 {tenant.status === "suspended" && <form action={setTenantStatusAction.bind(null, id, "onboarding")}><Button variant="secondary" type="submit">Voltar p/ onboarding</Button></form>}
               </div>
               <a href={publicUrl} target="_blank" className="mt-3 block break-all text-sm text-blue-700 underline">{publicUrl}</a>
+            </Card>
+          )}
+          {!isProspect && (
+            <Card title="Assinatura">
+              {sub ? (
+                <div className="space-y-1 text-sm">
+                  <p>
+                    {sub.plan.name} · {formatBRL(sub.plan.priceCents)}/mês · <Badge tone={sub.status === "active" ? "green" : sub.status === "past_due" ? "amber" : sub.status === "trialing" ? "blue" : "red"}>{sub.status}</Badge>
+                  </p>
+                  <p className="text-zinc-600">Período até {sub.periodEnd.toLocaleDateString("pt-BR")}{sub.graceUntil ? ` · tolerância até ${sub.graceUntil.toLocaleDateString("pt-BR")}` : ""}</p>
+                  {tenant.suspendedReason && <p className="text-red-700">Suspensa por: {tenant.suspendedReason}</p>}
+                  <ul className="mt-2 text-xs text-zinc-600">
+                    {invoices.map((i) => (
+                      <li key={i.id}>{i.dueAt.toLocaleDateString("pt-BR")} — {formatBRL(i.amountCents)} — {i.status}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">Sem assinatura.</p>
+              )}
+              <form action={changePlanAction.bind(null, id)} className="mt-3 flex gap-2">
+                <Select name="planId" defaultValue={tenant.planId ?? undefined}>
+                  {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — {formatBRL(p.priceCents)}</option>)}
+                </Select>
+                <SubmitButton variant="secondary">Trocar plano</SubmitButton>
+              </form>
+              {domains.length > 0 && (
+                <div className="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-600">
+                  Domínios: {domains.map((d) => `${d.hostname}${d.verifiedAt ? " ✓" : " (pendente)"}`).join(", ")}
+                  <p className="mt-1">Domínio verificado precisa ser adicionado ao serviço no Railway para emitir o HTTPS.</p>
+                </div>
+              )}
             </Card>
           )}
           <Card title="Números">

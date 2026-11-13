@@ -31,7 +31,37 @@ Legenda: ✅ feito · 🟡 parcial · ⬜ pendente · 🔒 depende de decisão d
 - ⬜ **Backups** do Postgres no Railway e política de retenção LGPD (exclusão/anonimização de clientes inativos).
 - ⬜ **Importação CSV de clientes** e etiquetas editáveis no CRM (§10).
 
+# Fase 2
+
+| Item | Status | Onde |
+|---|---|---|
+| Lista de espera com oferta automática | ✅ | `lib/waitlist.ts`, `/w/{token}`, `/painel/lista-de-espera` |
+| Política de sinal: reembolso automático, crédito, retenção parcial | 🟡 | `lib/scheduling/deposit-policy.ts`. Reembolso só no PSP mock 🔒 |
+| Cupons | ✅ | `lib/coupons.ts`, `/painel/cupons`, campo na reserva |
+| Múltiplas unidades + limites do plano | ✅ | `/painel/unidades`, escolha de unidade na página, filtro na agenda, `lib/plans.ts` |
+| Domínio próprio | 🟡 | `lib/domains.ts`, `middleware.ts`, `/d/{host}`. HTTPS no Railway manual ⬜ |
+| Assinatura do SaaS (trial, fatura, inadimplência, suspensão) | 🟡 | `lib/billing/`, `/painel/plano`. PSP de cobrança mock 🔒 |
+| Instagram Login + importação | 🟡 | `lib/instagram/`, `/painel/marca/instagram`. App Review da Meta 🔒 |
+| Cadastro self-service | 🟡 | `/cadastro`. Falta verificação de e-mail ⬜ |
+
+Pendências da Fase 2:
+- 🔒 PSP de cobrança da assinatura (`BillingProvider`) e reembolso real (`PaymentProvider.refund`).
+- 🔒 App da Meta do tipo Business + Advanced Access para `instagram_business_basic`; template do WhatsApp `waitlist_offer` com botão `/w/{{1}}`.
+- ⬜ Automatizar o cadastro do domínio verificado no Railway (API) para emitir HTTPS.
+- ⬜ Verificação de e-mail e recuperação de senha no cadastro self-service (exige provedor de e-mail).
+- ⬜ Verificação por código no WhatsApp antes de usar crédito (ver ADR 0007).
+
 ## Testes existentes
 
-`npm test` — 37 testes (unitários + integração em Postgres real):
-disponibilidade/fuso, sinal, contraste/sanitização do tema, criptografia, tokens; concorrência (8 reservas simultâneas), "qualquer profissional", buffer, Pix confirmado uma vez, webhook inválido, Pix expirado/pagamento tardio, retenção do sinal, remarcação atômica, isolamento entre tenants, retentativa do WhatsApp, lembrete de horário remarcado, consentimento, ciclo da prévia, versões do tema.
+`npm test`: 57 testes (unitários + integração em Postgres real).
+- **Fase 1**: disponibilidade/fuso, sinal, contraste/sanitização do tema, criptografia, tokens; concorrência (8 reservas simultâneas), "qualquer profissional", buffer, Pix confirmado uma vez, webhook inválido, Pix expirado/pagamento tardio, retenção do sinal, remarcação atômica, isolamento entre tenants, retentativa do WhatsApp, lembrete de horário remarcado, consentimento, ciclo da prévia, versões do tema.
+- **Fase 2**:
+  - cupons: desconto e sinal, limite sob concorrência, devolução do uso, isolamento;
+  - crédito: total, parcial e devolução na expiração;
+  - reembolso automático com falha e nova tentativa; retenção parcial em cancelamento tardio e em falta;
+  - lista de espera: oferta, reserva pelo link, limites e datas;
+  - unidades com fuso próprio e limites do plano;
+  - ciclo completo da assinatura; suspensão pelo admin não é revertida por pagamento;
+  - domínio verificado por TXT;
+  - Instagram: OAuth, importação e anti-SSRF;
+  - cadastro self-service.

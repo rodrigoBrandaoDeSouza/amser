@@ -58,14 +58,17 @@ export async function requireSuperadmin(): Promise<User> {
  * Contexto do painel da empresa. O tenantId vem SEMPRE do usuário autenticado.
  * Staff só acessa o que `allowStaff` permitir.
  */
-export async function requireTenantUser(opts: { allowStaff?: boolean } = {}) {
+export async function requireTenantUser(opts: { allowStaff?: boolean; allowBillingSuspended?: boolean } = {}) {
   const user = await currentUser();
   if (!user) redirect("/login");
   if (user.role === "superadmin") redirect("/admin");
   if (!user.tenantId) redirect("/login");
   if (user.role === "staff" && !opts.allowStaff) redirect("/painel/agenda");
   const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
-  if (!tenant || tenant.status === "deleted" || tenant.status === "suspended" || tenant.status === "prospect") {
+  // Suspensão por cobrança: o dono ainda acessa a página do plano para pagar.
+  const billingSuspended = tenant?.status === "suspended" && tenant.suspendedReason === "billing" && user.role === "owner";
+  if (billingSuspended && !opts.allowBillingSuspended) redirect("/painel/plano");
+  if (!tenant || tenant.status === "deleted" || (tenant.status === "suspended" && !billingSuspended) || tenant.status === "prospect") {
     redirect("/login?erro=empresa-indisponivel");
   }
   const professional =

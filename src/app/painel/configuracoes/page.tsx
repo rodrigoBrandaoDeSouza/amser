@@ -1,14 +1,19 @@
 import { requireTenantUser } from "@/lib/auth/session";
-import { Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { cancellationPolicy } from "@/lib/public";
+import { VERIFY_PREFIX } from "@/lib/domains";
+import { env } from "@/lib/env";
 import { saveSettingsAction } from "../actions";
+import { addDomainAction, removeDomainAction, savePoliciesAction, verifyDomainAction } from "../actions-fase2";
 
 export default async function SettingsPage({ searchParams }: { searchParams: SearchParams }) {
-  const { tenant } = await requireTenantUser();
+  const { tenant, db } = await requireTenantUser();
   const { ok, erro } = await flashParams(searchParams);
   const t = tenant;
+  const domains = await db.tenantDomain.findMany({ orderBy: { createdAt: "asc" } });
+  const appHost = new URL(env().APP_URL).hostname;
   return (
     <>
       <PageHeader title="Configurações" subtitle="Dados da página e regras da agenda" />
@@ -61,6 +66,58 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
 
         <div className="lg:col-span-2"><SubmitButton>Salvar configurações</SubmitButton></div>
       </form>
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        <Card title="Política do sinal (cancelamentos e faltas)">
+          <form action={savePoliciesAction} className="space-y-3">
+            <Field label="Quando o sinal volta para o cliente" hint="Cancelamento dentro do prazo ou parte não retida">
+              <Select name="depositRefundMode" defaultValue={t.depositRefundMode}>
+                <option value="refund">Reembolso automático no Pix</option>
+                <option value="credit">Crédito para o próximo agendamento</option>
+              </Select>
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Cancelamento fora do prazo: reter (%)"><Input type="number" name="lateCancelRetainPercent" min={0} max={100} defaultValue={t.lateCancelRetainPercent} /></Field>
+              <Field label="Falta: reter (%)"><Input type="number" name="noShowRetainPercent" min={0} max={100} defaultValue={t.noShowRetainPercent} /></Field>
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="waitlistEnabled" defaultChecked={t.waitlistEnabled} className="mt-0.5" />
+              <span>Lista de espera: oferecer automaticamente pelo WhatsApp os horários que forem liberados.</span>
+            </label>
+            <SubmitButton variant="secondary">Salvar política</SubmitButton>
+          </form>
+        </Card>
+
+        <Card title="Domínio próprio">
+          <p className="mb-3 text-sm text-zinc-600">Use um endereço seu, como <code>agenda.seunegocio.com.br</code>, no lugar de /{t.slug}.</p>
+          <ul className="mb-4 space-y-3 text-sm">
+            {domains.map((d) => (
+              <li key={d.id} className="rounded-lg border border-zinc-200 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{d.hostname}</span>
+                  {d.verifiedAt ? <Badge tone="green">verificado</Badge> : <Badge tone="amber">aguardando DNS</Badge>}
+                  <span className="ml-auto flex gap-1">
+                    {!d.verifiedAt && <form action={verifyDomainAction.bind(null, d.id)}><Button variant="secondary" type="submit">Verificar</Button></form>}
+                    <form action={removeDomainAction.bind(null, d.id)}><Button variant="ghost" type="submit">Remover</Button></form>
+                  </span>
+                </div>
+                {!d.verifiedAt && (
+                  <div className="mt-2 space-y-1 text-xs text-zinc-600">
+                    <p>No painel do seu domínio, crie:</p>
+                    <p className="font-mono">CNAME {d.hostname} → {appHost}</p>
+                    <p className="break-all font-mono">TXT {VERIFY_PREFIX}.{d.hostname} = {d.verificationToken}</p>
+                    <p>Depois de verificado, nossa equipe ativa o certificado HTTPS (até 24h).</p>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <form action={addDomainAction} className="flex flex-wrap items-end gap-2">
+            <Field label="Domínio"><Input name="hostname" placeholder="agenda.seunegocio.com.br" required /></Field>
+            <SubmitButton variant="secondary">Adicionar</SubmitButton>
+          </form>
+        </Card>
+      </div>
     </>
   );
 }

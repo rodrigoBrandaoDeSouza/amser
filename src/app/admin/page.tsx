@@ -2,6 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { Badge, Card, Flash, LinkButton, PageHeader, Stat } from "@/components/ui";
 import { flashParams, type SearchParams } from "@/lib/actions";
+import { mrrCents } from "@/lib/billing/service";
+import { formatBRL } from "@/lib/format";
 
 const STATUS_TONE = { prospect: "amber", onboarding: "blue", active: "green", suspended: "red", deleted: "zinc" } as const;
 const STATUS_TEXT = { prospect: "Prévia", onboarding: "Onboarding", active: "Ativa", suspended: "Suspensa", deleted: "Excluída" };
@@ -24,6 +26,12 @@ export default async function AdminHome({ searchParams }: { searchParams: Search
     prisma.messageUsage.aggregate({ where: { period }, _sum: { messagesSent: true } }),
     prisma.messageOutbox.count({ where: { status: "dead", createdAt: { gte: since } } }),
   ]);
+  const [mrr, subs, selfSignups] = await Promise.all([
+    mrrCents(),
+    prisma.subscription.groupBy({ by: ["status"], _count: true }),
+    prisma.auditLog.count({ where: { action: "tenant.create.onboarding", actorId: "self-signup", createdAt: { gte: since } } }),
+  ]);
+  const subCount = (s: string) => subs.find((b) => b.status === s)?._count ?? 0;
   const count = (s: string) => byStatus.find((b) => b.status === s)?._count ?? 0;
 
   return (
@@ -45,6 +53,9 @@ export default async function AdminHome({ searchParams }: { searchParams: Search
         <Stat label="Conversão (30d)" value={prospectsCreated ? `${Math.round((converted / prospectsCreated) * 100)}%` : "—"} hint={`${converted} de ${prospectsCreated} prévias`} />
         <Stat label="Agendamentos (30d)" value={appts30} />
         <Stat label="WhatsApp no mês" value={usage._sum.messagesSent ?? 0} hint={dead ? `${dead} falhas definitivas (30d)` : "sem falhas definitivas"} />
+        <Stat label="MRR" value={formatBRL(mrr)} hint={`${subCount("active")} assinaturas pagas`} />
+        <Stat label="Em teste" value={subCount("trialing")} hint={`${selfSignups} cadastros self-service (30d)`} />
+        <Stat label="Inadimplentes" value={subCount("past_due")} hint={`${count("suspended")} empresas suspensas`} />
       </div>
       <Card>
         <div className="-mx-4 overflow-x-auto sm:mx-0">

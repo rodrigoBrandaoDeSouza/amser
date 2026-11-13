@@ -6,8 +6,51 @@ import { randomToken } from "./crypto";
 import { audit } from "./audit";
 import { hashPassword } from "./auth/password";
 import { MAX_UPLOAD_BYTES, sniffImage, storage } from "./storage";
+import { env } from "./env";
+import { startTrial } from "./billing/service";
 
 export const PREVIEW_DAYS = 14;
+
+/** Plano padrão de novas empresas: o de nome DEFAULT_PLAN_NAME ou o mais barato. */
+export async function defaultPlanId(): Promise<string | null> {
+  const byName = await prisma.plan.findFirst({ where: { name: env().DEFAULT_PLAN_NAME } });
+  if (byName) return byName.id;
+  return (await prisma.plan.findFirst({ orderBy: { priceCents: "asc" } }))?.id ?? null;
+}
+
+/**
+ * Cadastro self-service (Fase 2): o próprio dono cria a conta, entra em trial
+ * e vai direto para o editor de marca.
+ */
+export async function selfSignup(input: {
+  businessName: string;
+  segment: string;
+  ownerName: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+}) {
+  if (env().SELF_SIGNUP_ENABLED !== "true") throw Errors.policy("Cadastro indisponível no momento");
+  const email = input.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Errors.validation("E-mail inválido");
+  if (input.password.length < 10) throw Errors.validation("A senha precisa ter ao menos 10 caracteres");
+  if (input.ownerName.trim().length < 2) throw Errors.validation("Informe seu nome");
+  if (await prisma.user.findUnique({ where: { email } })) throw Errors.validation("Já existe uma conta com esse e-mail. Faça login.");
+  const tenant = await createTenant({
+    name: input.businessName,
+    segment: input.segment,
+    status: "onboarding",
+    phone: input.phone ?? null,
+    actorId: "self-signup",
+  });
+  try {
+    const user = await createOwnerUser(tenant.id, { name: input.ownerName, email, password: input.password });
+    return { tenant, user };
+  } catch (err) {
+    await prisma.tenant.delete({ where: { id: tenant.id } }).catch(() => undefined);
+    throw err;
+  }
+}
 
 export async function uniqueSlug(base: string): Promise<string> {
   let slug = slugify(base) || "empresa";
@@ -36,6 +79,7 @@ export async function createTenant(input: {
   if (!isValidSlug(slug)) throw Errors.validation("Slug inválido (use letras minúsculas, números e hífen)");
 
   const isProspect = input.status === "prospect";
+  const planId = isProspect ? null : (input.planId ?? (await defaultPlanId()));
   try {
     const tenant = await prisma.tenant.create({
       data: {
@@ -43,7 +87,7 @@ export async function createTenant(input: {
         slug,
         segment: input.segment,
         status: input.status,
-        planId: input.planId ?? null,
+        planId,
         phone: input.phone ?? null,
         instagramHandle: input.instagramHandle?.replace(/^@/, "") || null,
         previewToken: isProspect ? randomToken(24) : null,
@@ -51,6 +95,8 @@ export async function createTenant(input: {
         units: { create: { name: "Principal" } },
       },
     });
+    // Fase 2: toda empresa nova (não prévia) começa em período de teste.
+    if (planId) await startTrial(prisma, tenant.id, planId);
     await audit({ tenantId: tenant.id, actorId: input.actorId, action: `tenant.create.${input.status}`, resource: `tenant:${tenant.id}` });
     return tenant;
   } catch (err) {
@@ -69,10 +115,12 @@ export async function convertProspect(tenantId: string, owner: { name: string; e
   const passwordHash = await hashPassword(owner.password);
   try {
     await prisma.$transaction(async (tx) => {
+      const planId = tenant.planId ?? (await defaultPlanId());
       await tx.tenant.update({
         where: { id: tenantId },
-        data: { status: "onboarding", previewToken: null, previewExpiresAt: null },
+        data: { status: "onboarding", previewToken: null, previewExpiresAt: null, planId },
       });
+      if (planId) await startTrial(tx, tenantId, planId);
       // Exemplos da prévia viram inativos: o dono cadastra os reais.
       await tx.service.updateMany({ where: { tenantId, description: { startsWith: "[exemplo]" } }, data: { active: false } });
       await tx.user.create({ data: { tenantId, name: owner.name.trim(), email, passwordHash, role: "owner" } });

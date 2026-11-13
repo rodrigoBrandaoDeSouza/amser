@@ -12,6 +12,7 @@ import { finalizeTheme } from "../src/lib/branding/theme";
 import { mockAnalyzer } from "../src/lib/branding/analyze";
 import { storage } from "../src/lib/storage";
 import { randomToken } from "../src/lib/crypto";
+import { startTrial } from "../src/lib/billing/service";
 
 try {
   process.loadEnvFile(".env");
@@ -160,14 +161,31 @@ async function makeTenant(opts: {
   return tenant;
 }
 
+/** Dados de demonstração da Fase 2 (idempotente: roda também sobre um seed antigo). */
+async function ensurePhase2Demo() {
+  if (!(await prisma.plan.findFirst({ where: { name: "Rede" } }))) {
+    await prisma.plan.create({ data: { name: "Rede", priceCents: 29990, messageQuota: 3000, limitsJson: { professionals: 20, units: 5 } } });
+  }
+  await prisma.plan.updateMany({ where: { name: "Essencial" }, data: { limitsJson: { professionals: 1, units: 1 } } });
+  await prisma.plan.updateMany({ where: { name: "Equipe" }, data: { limitsJson: { professionals: 5, units: 1 } } });
+  const ana = await prisma.tenant.findUnique({ where: { slug: "studio-ana-nails" } });
+  if (ana && !(await prisma.coupon.findFirst({ where: { tenantId: ana.id, code: "BEMVINDA10" } }))) {
+    await prisma.coupon.create({ data: { tenantId: ana.id, code: "BEMVINDA10", discountType: "percent", discountValue: 10, maxPerCustomer: 1 } });
+  }
+  for (const t of await prisma.tenant.findMany({ where: { status: { in: ["active", "onboarding"] }, planId: { not: null } } })) {
+    await startTrial(prisma, t.id, t.planId!);
+  }
+}
+
 async function main() {
   if (await prisma.user.findUnique({ where: { email: "admin@amser.dev" } })) {
-    console.log("Seed já aplicado (admin@amser.dev existe). Nada a fazer.");
+    await ensurePhase2Demo();
+    console.log("Seed base já aplicado. Dados da Fase 2 garantidos (plano Rede, cupom BEMVINDA10, trials).");
     return;
   }
   const [basic, pro] = await Promise.all([
-    prisma.plan.create({ data: { name: "Essencial", priceCents: 5990, messageQuota: 300, limitsJson: { professionals: 1 } } }),
-    prisma.plan.create({ data: { name: "Equipe", priceCents: 12990, messageQuota: 1000, limitsJson: { professionals: 5 } } }),
+    prisma.plan.create({ data: { name: "Essencial", priceCents: 5990, messageQuota: 300, limitsJson: { professionals: 1, units: 1 } } }),
+    prisma.plan.create({ data: { name: "Equipe", priceCents: 12990, messageQuota: 1000, limitsJson: { professionals: 5, units: 1 } } }),
   ]);
   await prisma.user.create({
     data: { name: "Superadmin", email: "admin@amser.dev", passwordHash: await hashPassword(PASSWORD), role: "superadmin" },
@@ -221,6 +239,7 @@ async function main() {
     status: "prospect",
   });
 
+  await ensurePhase2Demo();
   const app = process.env.APP_URL ?? "http://localhost:3000";
   console.log(`
 Seed concluído. Senha de todos os usuários: ${PASSWORD}

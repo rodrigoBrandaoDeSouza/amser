@@ -9,7 +9,9 @@ import { rateLimit } from "@/lib/rate-limit";
 const Body = z.object({
   serviceId: z.string().min(1).max(40),
   professionalId: z.string().max(40).nullable(),
+  unitId: z.string().max(40).nullable().optional(),
   startsAt: z.string().datetime(),
+  couponCode: z.string().max(40).nullable().optional(),
   customer: z.object({
     name: z.string().min(2).max(120),
     phone: z.string().min(8).max(25),
@@ -34,6 +36,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       {
         token: result.token,
         status: result.appointment.status,
+        discountCents: result.discountCents,
+        creditAppliedCents: result.creditAppliedCents,
         payment: result.payment ? { amountCents: result.payment.amountCents, expiresAt: result.payment.expiresAt } : null,
       },
       { status: 201 },
