@@ -7,6 +7,7 @@ import { addDays, isValidDate, localDate, zonedToUtc } from "./time";
 import { upsertCustomer, type CustomerInput } from "./customers";
 import { createBooking, getAvailability } from "./scheduling/booking";
 import { isEnabled } from "./flags";
+import { kickOutbox } from "./whatsapp/outbox";
 
 /**
  * Lista de espera (Fase 2, pilar 2): quando um horário é liberado
@@ -139,6 +140,7 @@ export async function offerFreedSlot(tenantId: string, professionalId: string, f
       }),
     ]);
     offers++;
+    kickOutbox();
   }
   return offers;
 }

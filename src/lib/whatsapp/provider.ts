@@ -126,7 +126,7 @@ export const metaWhatsappProvider: WhatsappProvider = {
   name: "meta",
   async sendTemplate(input) {
     if (!input.phoneNumberId) throw new WhatsappSendError("conexão sem phone_number_id", false, undefined, "auth");
-    const components: unknown[] = [{ type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) }];
+    const components: unknown[] = input.bodyParams.length ? [{ type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) }] : [];
     if (input.buttonUrlParam) {
       components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: encodeURIComponent(input.buttonUrlParam) }] });
     }

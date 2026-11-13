@@ -8,7 +8,7 @@ const schema = z.object({
   CREDENTIALS_KEY: z.string().optional().default(""),
   BRANDING_AI_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
-  PAYMENT_PROVIDER: z.enum(["mock"]).default("mock"),
+  PAYMENT_PROVIDER: z.enum(["none", "mock"]).default("mock"),
   PAYMENT_WEBHOOK_SECRET: z.string().default("dev-payment-webhook-secret"),
   WHATSAPP_PROVIDER: z.enum(["mock", "meta"]).default("mock"),
   WHATSAPP_APP_SECRET: z.string().optional().default(""),
@@ -33,7 +33,7 @@ const schema = z.object({
   SMTP_SECURE: z.enum(["true", "false"]).default("false"),
   JOBS_SECRET: z.string().default("dev-jobs-secret"),
   // Fase 2
-  BILLING_PROVIDER: z.enum(["mock"]).default("mock"),
+  BILLING_PROVIDER: z.enum(["none", "mock"]).default("mock"),
   BILLING_WEBHOOK_SECRET: z.string().default("dev-billing-webhook-secret"),
   INSTAGRAM_PROVIDER: z.enum(["off", "mock", "meta"]).default("off"),
   INSTAGRAM_APP_ID: z.string().optional().default(""),
@@ -62,3 +62,55 @@ export function env(): Env {
 }
 
 export const isProd = () => env().NODE_ENV === "production";
+
+/**
+ * Sinal via Pix ligado? Sem PSP real ("none"), o sinal fica desativado e as
+ * reservas são confirmadas sem pagamento. Em produção, o mock NUNCA é usado
+ * (geraria um Pix impagável): equivale a "none".
+ */
+export function depositsEnabled(): boolean {
+  const p = env().PAYMENT_PROVIDER;
+  return p !== "none" && !(isProd() && p === "mock" && !isLocalAppUrl());
+}
+
+/** Cobrança automática da assinatura ligada? Mesmo critério: mock em produção = desligada (cobrança manual). */
+export function billingEnabled(): boolean {
+  const p = env().BILLING_PROVIDER;
+  return p !== "none" && !(isProd() && p === "mock" && !isLocalAppUrl());
+}
+
+/** Build de produção rodando na máquina (testes E2E/carga): APP_URL em localhost. */
+export function isLocalAppUrl(): boolean {
+  try {
+    return ["localhost", "127.0.0.1"].includes(new URL(env().APP_URL).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checagem de produção (rodada ao subir o servidor, não no build): falha
+ * rápido com mensagem clara em vez de funcionar errado.
+ */
+export function productionProblems(): string[] {
+  const e = env();
+  const p: string[] = [];
+  if (!e.APP_URL.startsWith("https://")) p.push("APP_URL precisa ser https:// em produção");
+  if (/troque|build-only|dev-/i.test(e.SESSION_SECRET)) p.push("SESSION_SECRET parece ser um valor de exemplo — gere um aleatório");
+  if (Buffer.from(e.CREDENTIALS_KEY, "base64").length !== 32) p.push("CREDENTIALS_KEY deve ter 32 bytes em base64");
+  if (/^dev-/.test(e.JOBS_SECRET)) p.push("JOBS_SECRET parece ser um valor de exemplo");
+  if (e.WHATSAPP_PROVIDER === "meta") {
+    if (!e.WHATSAPP_APP_SECRET) p.push("WHATSAPP_APP_SECRET é obrigatório com WHATSAPP_PROVIDER=meta");
+    if (!e.WHATSAPP_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN.length < 16) p.push("WHATSAPP_VERIFY_TOKEN deve ter 16+ caracteres");
+  }
+  // Caminho absoluto (Linux "/data/…" ou Windows "C:\…"); sem node:path para compilar também no edge.
+  if (e.STORAGE_PROVIDER === "local" && !/^(\/|[A-Za-z]:[\\/])/.test(e.STORAGE_LOCAL_DIR)) {
+    p.push("Em produção, STORAGE_LOCAL_DIR deve apontar para um volume persistente (ex.: /data/uploads) ou use STORAGE_PROVIDER=s3");
+  }
+  return p;
+}
+
+/** Só para testes: força reler as variáveis de ambiente. */
+export function resetEnvCacheForTests() {
+  cached = null;
+}

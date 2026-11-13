@@ -6,7 +6,7 @@ import { messageUsage } from "@/lib/metrics";
 import { maskPhone } from "@/lib/format";
 import { env } from "@/lib/env";
 import { DEFAULT_TEMPLATES, OPT_OUT_FOOTER } from "@/lib/whatsapp/templates";
-import { provisionTemplatesAction, saveTemplatesAction, saveWhatsappAction, syncTemplatesAction } from "../actions";
+import { provisionTemplatesAction, saveTemplatesAction, saveWhatsappAction, syncTemplatesAction, testWhatsappAction } from "../actions";
 
 const EVENTS = [
   ["booking_confirmed", "Confirmação de agendamento"],
@@ -75,6 +75,14 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
               Quais mensagens enviar e em que horário: <a href="/painel/mensagens" className="underline">Mensagens automáticas</a>.
             </p>
           </form>
+          {connected && (
+            <form action={testWhatsappAction} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg bg-zinc-50 p-3">
+              <Field label="Enviar mensagem de teste para" hint="Usa o modelo “hello_world” da Meta (em inglês), já aprovado em toda conta nova.">
+                <Input name="testPhone" inputMode="tel" placeholder="(11) 98888-7777" required />
+              </Field>
+              <SubmitButton variant="secondary" pendingText="Enviando…">Enviar teste</SubmitButton>
+            </form>
+          )}
           <details className="mt-4 text-xs text-zinc-600">
             <summary className="cursor-pointer">Configuração do webhook (uma vez, no app da Meta)</summary>
             <p className="mt-2">URL de callback: <code className="break-all">{webhookUrl}</code></p>

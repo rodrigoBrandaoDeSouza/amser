@@ -31,4 +31,4 @@ USER amser
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 # Aplica migrations e sobe o servidor.
-CMD ["sh", "-c", "npx prisma migrate deploy && npx next start -p ${PORT}"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node scripts/bootstrap.mjs && npx next start -p ${PORT}"]

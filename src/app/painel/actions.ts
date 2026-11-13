@@ -420,3 +420,12 @@ export async function markRefundedAction(paymentId: string) {
     return "Reembolso registrado";
   });
 }
+
+export async function testWhatsappAction(fd: FormData) {
+  const { user, tenant } = await requireTenantUser();
+  await runAction("/painel/integracoes", async () => {
+    const { sendTestMessage } = await import("@/lib/whatsapp/service");
+    const id = await sendTestMessage(tenant.id, user.id, str(fd, "testPhone"));
+    return `Mensagem de teste enviada (id ${id.slice(0, 24)}…). Confira no WhatsApp do número informado.`;
+  });
+}

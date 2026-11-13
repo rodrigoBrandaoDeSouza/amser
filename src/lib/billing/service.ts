@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../db";
 import { audit } from "../audit";
 import { billingProvider } from "./provider";
+import { billingEnabled } from "../env";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -40,6 +41,8 @@ export async function startTrial(tx: Tx, tenantId: string, planId: string, now =
  */
 export async function runBillingCycle(now = new Date()) {
   const stats = { invoices: 0, pastDue: 0, suspended: 0 };
+  // Sem PSP de cobrança: nada automático (nem fatura, nem suspensão). Cobrança manual pelo superadmin.
+  if (!billingEnabled()) return stats;
   const provider = billingProvider();
 
   const due = await prisma.subscription.findMany({
@@ -156,4 +159,24 @@ export async function changePlan(tenantId: string, planId: string, actorId: stri
 export async function mrrCents(): Promise<number> {
   const subs = await prisma.subscription.findMany({ where: { status: "active" }, include: { plan: true } });
   return subs.reduce((s, x) => s + x.plan.priceCents, 0);
+}
+
+/**
+ * Cobrança manual (enquanto não há PSP): a equipe registra que a empresa
+ * pagou e a assinatura avança um mês. Fica na auditoria.
+ */
+export async function registerManualPayment(tenantId: string, actorId: string, now = new Date()) {
+  const sub = await prisma.subscription.findFirst({ where: { tenantId }, orderBy: { periodEnd: "desc" } });
+  if (!sub) throw new Error("Empresa sem assinatura");
+  const start = sub.periodEnd > now ? sub.periodEnd : now;
+  const end = addMonths(start, 1);
+  await prisma.$transaction(async (tx) => {
+    await tx.subscription.update({ where: { id: sub.id }, data: { status: "active", periodStart: start, periodEnd: end, graceUntil: null } });
+    const t = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    if (t.status === "suspended" && t.suspendedReason === "billing") {
+      await tx.tenant.update({ where: { id: tenantId }, data: { status: t.statusBeforeSuspension ?? "active", suspendedReason: null, statusBeforeSuspension: null } });
+    }
+    await audit({ tenantId, actorId, action: "billing.manual_payment", resource: `subscription:${sub.id}`, meta: { until: end.toISOString() } }, tx);
+  });
+  return end;
 }

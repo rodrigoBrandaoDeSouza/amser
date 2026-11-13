@@ -1,6 +1,7 @@
 import type { Tenant } from "@prisma/client";
 import { prisma, tenantDb } from "./db";
 import { computeDepositCents } from "./scheduling/deposit";
+import { depositsEnabled } from "./env";
 
 /** Resolve o slug público. Só empresas publicadas (active) aparecem. */
 export async function getPublicTenant(slug: string): Promise<Tenant | null> {
@@ -48,7 +49,7 @@ export async function getPublicCatalog(tenantId: string): Promise<PublicService[
       category: s.category?.name ?? null,
       durationMinutes: s.durationMinutes,
       priceCents: s.priceCents,
-      depositCents: computeDepositCents(s.priceCents, s.depositType, s.depositValue),
+      depositCents: depositsEnabled() ? computeDepositCents(s.priceCents, s.depositType, s.depositValue) : 0,
       professionals: s.professionals
         .filter((p) => p.professional.active && p.professional.unit.active)
         .map((p) => ({ id: p.professional.id, name: p.professional.displayName, unitId: p.professional.unitId })),
@@ -67,6 +68,9 @@ export async function getPublicUnits(tenantId: string): Promise<PublicUnit[]> {
 
 export function cancellationPolicy(t: Tenant): string {
   if (t.cancellationPolicyText?.trim()) return t.cancellationPolicyText.trim();
+  if (!depositsEnabled()) {
+    return `Cancelamentos e remarcações até ${t.cancelLimitHours}h antes do horário, pelo link que você recebe. Depois disso, fale com o estabelecimento.`;
+  }
   const late =
     t.lateCancelRetainPercent >= 100
       ? "o sinal não é devolvido"

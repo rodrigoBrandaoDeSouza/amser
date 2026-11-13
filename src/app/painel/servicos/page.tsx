@@ -1,4 +1,5 @@
 import { requireTenantUser } from "@/lib/auth/session";
+import { depositsEnabled } from "@/lib/env";
 import { Badge, Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
@@ -63,6 +64,11 @@ export default async function ServicesPage({ searchParams }: { searchParams: Sea
   return (
     <>
       <PageHeader title="Serviços" subtitle="Preço, duração e sinal de cada serviço" />
+      {!depositsEnabled() && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          O sinal via Pix ainda não está disponível: as reservas são confirmadas sem pagamento. A regra de sinal de cada serviço fica salva e passa a valer quando o Pix for ativado.
+        </div>
+      )}
       <Flash ok={ok} erro={erro} />
       <div className="space-y-3">
         {services.map((s) => {

@@ -234,3 +234,21 @@ export async function adminSyncTemplatesAction(tenantId: string) {
     return `Status de ${await syncTemplates(tenantId)} template(s) atualizado`;
   });
 }
+
+export async function adminTestWhatsappAction(tenantId: string, fd: FormData) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { sendTestMessage } = await import("@/lib/whatsapp/service");
+    await sendTestMessage(tenantId, admin.id, str(fd, "testPhone"));
+    return "Mensagem de teste (hello_world) enviada";
+  });
+}
+
+export async function manualPaymentAction(tenantId: string) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { registerManualPayment } = await import("@/lib/billing/service");
+    const until = await registerManualPayment(tenantId, admin.id);
+    return `Pagamento registrado. Assinatura ativa até ${until.toLocaleDateString("pt-BR")}.`;
+  });
+}

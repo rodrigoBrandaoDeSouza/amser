@@ -80,6 +80,8 @@ Os testes de integração rodam contra Postgres real: concorrência de reservas,
 
 ## Deploy (Railway)
 
+> **Guia completo da versão 1.0 (Railway + WhatsApp oficial): [docs/deploy.md](docs/deploy.md).**
+
 1. Crie um projeto com dois serviços: **PostgreSQL** e esta aplicação (deploy do GitHub). O `railway.json` define build, migrations no start e healthcheck (`/api/health`).
 2. Variáveis da aplicação: todas do `.env.example`, com `NODE_ENV=production`, `APP_URL` = domínio público, segredos fortes (`SESSION_SECRET`, `CREDENTIALS_KEY`, `JOBS_SECRET`, `PAYMENT_WEBHOOK_SECRET`) e `DATABASE_URL` referenciando o Postgres do projeto.
 3. **Jobs:** agende `POST /api/jobs/run` com `Authorization: Bearer $JOBS_SECRET` a cada minuto (cron externo) ou crie um serviço cron no Railway executando `npm run jobs:run`. Confira o intervalo mínimo suportado pelo Railway. A expiração de Pix também acontece dentro da transação de reserva, então a correção da agenda não depende do cron, mas as mensagens do WhatsApp sim.

@@ -3,6 +3,7 @@ import { quoteCoupon } from "@/lib/coupons";
 import { computeDepositCents } from "@/lib/scheduling/deposit";
 import { tenantDb } from "@/lib/db";
 import { isEnabled } from "@/lib/flags";
+import { depositsEnabled } from "@/lib/env";
 import { Errors } from "@/lib/errors";
 import { errorResponse, json, limit } from "@/lib/http";
 
@@ -22,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       code: coupon.code,
       discountCents,
       finalPriceCents,
-      depositCents: computeDepositCents(finalPriceCents, service.depositType, service.depositValue),
+      depositCents: depositsEnabled() ? computeDepositCents(finalPriceCents, service.depositType, service.depositValue) : 0,
     });
   } catch (err) {
     return errorResponse(err);

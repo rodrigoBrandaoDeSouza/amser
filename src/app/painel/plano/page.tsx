@@ -6,7 +6,7 @@ import { flashParams, type SearchParams } from "@/lib/actions";
 import { formatBRL } from "@/lib/format";
 import { planLimits } from "@/lib/plans";
 import { messageUsage } from "@/lib/metrics";
-import { env } from "@/lib/env";
+import { billingEnabled, env } from "@/lib/env";
 import { DevPayInvoice } from "./DevPayInvoice";
 
 const SUB_STATUS = {
@@ -35,6 +35,11 @@ export default async function PlanPage({ searchParams }: { searchParams: SearchP
   return (
     <>
       <PageHeader title="Plano e cobrança" subtitle="Sem comissão por cliente. WhatsApp incluído na franquia do plano." />
+      {!billingEnabled() && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          A cobrança é feita diretamente pela equipe Amser enquanto o pagamento automático não está disponível. Nenhuma fatura é gerada aqui.
+        </div>
+      )}
       <Flash ok={ok} erro={erro} />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Plano" value={sub?.plan.name ?? "—"} hint={sub ? `${formatBRL(sub.plan.priceCents)}/mês` : undefined} />

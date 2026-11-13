@@ -7,6 +7,7 @@ import { computeDepositCents, isWithinCancelWindow } from "./deposit";
 import { applySettlement, computeSettlement, creditBalance, processRefundSafe } from "./deposit-policy";
 import { paymentProvider } from "../payments/provider";
 import { decryptJson } from "../crypto";
+import { depositsEnabled } from "../env";
 import { scheduleAppointmentMessagesSafe } from "../whatsapp/outbox";
 import { actionTokenExpiry, signActionToken } from "../tokens";
 import { upsertCustomer, parseCustomer, type CustomerInput } from "../customers";
@@ -226,7 +227,8 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
     couponId = q.coupon.id;
   }
   const finalPrice = service.priceCents - discountCents;
-  const depositCents = input.skipDeposit ? 0 : computeDepositCents(finalPrice, service.depositType, service.depositValue);
+  // Sem PSP configurado (ex.: produção sem provedor de Pix), o sinal fica desativado.
+  const depositCents = input.skipDeposit || !depositsEnabled() ? 0 : computeDepositCents(finalPrice, service.depositType, service.depositValue);
   const endsAt = addMinutes(startsAt, service.durationMinutes);
   const blockEndsAt = addMinutes(endsAt, service.bufferMinutes);
 

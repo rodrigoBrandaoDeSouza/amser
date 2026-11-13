@@ -220,3 +220,23 @@ export async function handleWhatsappEvents(events: WebhookEvent[]) {
 export function isAuthError(err: unknown) {
   return err instanceof WhatsappSendError && err.kind === "auth";
 }
+
+/**
+ * Mensagem de teste com o template "hello_world" (en_US), que a Meta cria em
+ * toda conta nova — valida número, token e entrega antes da aprovação dos
+ * templates do Amser. O destinatário precisa ter WhatsApp.
+ */
+export async function sendTestMessage(tenantId: string, actorId: string, toPhone: string) {
+  const { normalizePhoneBR } = await import("../format");
+  const to = normalizePhoneBR(toPhone);
+  if (!to) throw Errors.validation("Telefone inválido. Use DDD + número.");
+  const conn = await tenantDb(tenantId).whatsappConnection.findFirst({});
+  if (!conn || conn.status !== "connected") throw Errors.policy("Conecte e valide o WhatsApp primeiro");
+  try {
+    const r = await whatsappProvider().sendTemplate({ ...credentialsOf(conn), toE164: to, templateName: "hello_world", language: "en_US", bodyParams: [] });
+    await audit({ tenantId, actorId, action: "whatsapp.test_send", resource: `tenant:${tenantId}` });
+    return r.providerMessageId;
+  } catch (err) {
+    throw new AppError("whatsapp_test", `A Meta recusou o envio: ${err instanceof Error ? err.message : err}`, 422);
+  }
+}

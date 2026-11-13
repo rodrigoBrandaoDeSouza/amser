@@ -41,7 +41,7 @@ export const mockBillingProvider: BillingProvider = {
 };
 
 export function billingProvider(name: string = env().BILLING_PROVIDER): BillingProvider {
-  if (name === "mock" || name === "billing-mock") return mockBillingProvider;
+  if (name === "mock" || name === "billing-mock" || name === "none") return mockBillingProvider;
   throw new Error(`Provedor de cobrança desconhecido: ${name}`);
 }
 

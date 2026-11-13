@@ -5,11 +5,13 @@ import { Badge, Button, Card, Field, Flash, Input, PageHeader, Select, Textarea 
 import { formatBRL } from "@/lib/format";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
-import { env } from "@/lib/env";
+import { billingEnabled, env } from "@/lib/env";
 import { ThemeSchema } from "@/lib/branding/theme";
 import { allFlags } from "@/lib/flags";
 import {
   adminConnectWhatsappAction,
+  adminTestWhatsappAction,
+  manualPaymentAction,
   adminProvisionTemplatesAction,
   adminSyncTemplatesAction,
   cancelDeletionAction,
@@ -45,6 +47,7 @@ export default async function TenantDetail({ params, searchParams }: { params: P
     prisma.messageTemplate.findMany({ where: { tenantId: id } }),
   ]);
   const approved = waTemplates.filter((t) => t.status === "APPROVED").length;
+  const billingOn = billingEnabled();
   const [logs, sub, invoices, plans, domains] = await Promise.all([
     prisma.auditLog.findMany({ where: { tenantId: id }, orderBy: { createdAt: "desc" }, take: 15 }),
     prisma.subscription.findFirst({ where: { tenantId: id }, include: { plan: true }, orderBy: { periodEnd: "desc" } }),
@@ -222,6 +225,12 @@ export default async function TenantDetail({ params, searchParams }: { params: P
               ) : (
                 <p className="text-sm text-zinc-500">Sem assinatura.</p>
               )}
+              {!billingOn && sub && (
+                <form action={manualPaymentAction.bind(null, id)} className="mt-3 rounded-lg bg-zinc-50 p-2 text-xs">
+                  <p className="mb-1 text-zinc-600">Cobrança manual (sem provedor de pagamento): registre quando a empresa pagar.</p>
+                  <Button variant="secondary" type="submit">Registrar pagamento do mês</Button>
+                </form>
+              )}
               <form action={changePlanAction.bind(null, id)} className="mt-3 flex gap-2">
                 <Select name="planId" defaultValue={tenant.planId ?? undefined}>
                   {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — {formatBRL(p.priceCents)}</option>)}
@@ -260,6 +269,12 @@ export default async function TenantDetail({ params, searchParams }: { params: P
                 <form action={adminProvisionTemplatesAction.bind(null, id)}><Button variant="secondary" type="submit" disabled={waConn?.status !== "connected"}>Criar na Meta</Button></form>
                 <form action={adminSyncTemplatesAction.bind(null, id)}><Button variant="ghost" type="submit" disabled={waConn?.status !== "connected"}>Atualizar</Button></form>
               </div>
+              {waConn?.status === "connected" && (
+                <form action={adminTestWhatsappAction.bind(null, id)} className="mt-3 flex flex-wrap items-end gap-2 border-t border-zinc-100 pt-3">
+                  <Field label="Teste (hello_world) para"><Input name="testPhone" inputMode="tel" placeholder="(11) 9…" required /></Field>
+                  <SubmitButton variant="secondary" pendingText="Enviando…">Enviar teste</SubmitButton>
+                </form>
+              )}
             </Card>
           )}
           <Card title="Números">

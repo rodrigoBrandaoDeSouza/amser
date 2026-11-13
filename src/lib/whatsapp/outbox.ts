@@ -95,9 +95,38 @@ export async function scheduleAppointmentMessages(
 export async function scheduleAppointmentMessagesSafe(...args: Parameters<typeof scheduleAppointmentMessages>) {
   try {
     await scheduleAppointmentMessages(...args);
+    kickOutbox();
   } catch (err) {
     console.error("[outbox] falha ao enfileirar mensagens", err instanceof Error ? err.message : err);
   }
+}
+
+/**
+ * Dispara o envio logo após enfileirar (confirmação chega em segundos, sem
+ * esperar o próximo ciclo do worker). Não bloqueia a resposta; o "claim" do
+ * outbox impede envio duplicado se o worker processar ao mesmo tempo.
+ */
+let kickRunning = false;
+let kickAgain = false;
+export function kickOutbox() {
+  if (process.env.NODE_ENV === "test" || process.env.OUTBOX_KICK === "false") return;
+  if (kickRunning) {
+    kickAgain = true;
+    return;
+  }
+  kickRunning = true;
+  void (async () => {
+    try {
+      do {
+        kickAgain = false;
+        await processOutbox(new Date(), 20);
+      } while (kickAgain);
+    } catch (err) {
+      console.error("[outbox] envio imediato falhou (o worker tenta de novo)", err instanceof Error ? err.message : err);
+    } finally {
+      kickRunning = false;
+    }
+  })();
 }
 
 function inSendWindow(now: Date, tz: string, start: string, end: string): boolean {
