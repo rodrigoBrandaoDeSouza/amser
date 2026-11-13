@@ -130,6 +130,32 @@ export function isOverlapViolation(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Erros transitórios de concorrência: deadlock (40P01), serialização (40001),
+ * conflito de escrita (P2034) e transação expirada por espera de lock (P2028).
+ * Devem ser retentados — não indicam conflito de horário.
+ */
+export function isTransientTxError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === "P2034" || err.code === "P2028")) return true;
+  const msg = err instanceof Error ? err.message : "";
+  return /40P01|deadlock detected|40001|could not serialize|55P03/.test(msg);
+}
+
+/** Opções das transações curtas de agenda (a constraint pode esperar a outra transação terminar). */
+export const BOOKING_TX = { maxWait: 10_000, timeout: 15_000 } as const;
+
+/** Executa fn com até `attempts` tentativas em erros transitórios (backoff com jitter). */
+export async function withTxRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isTransientTxError(err) || i >= attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 25 * (i + 1) + Math.random() * 50));
+    }
+  }
+}
+
 export function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
 }

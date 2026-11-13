@@ -1,5 +1,5 @@
 import type { Appointment, AppointmentStatus, Prisma, Tenant } from "@prisma/client";
-import { prisma, isOverlapViolation, tenantDb } from "../db";
+import { prisma, isOverlapViolation, isTransientTxError, withTxRetry, BOOKING_TX, tenantDb } from "../db";
 import { Errors, AppError } from "../errors";
 import { addMinutes, localDate, isValidDate, weekdayOf } from "../time";
 import { computeSlots, dayBounds, type Interval } from "./availability";
@@ -226,7 +226,8 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
   let creditApplied = 0;
   for (const professionalId of option.professionalIds) {
     try {
-      const res = await prisma.$transaction(async (tx) => {
+      // withTxRetry: deadlock/timeout de lock sob disputa são retentados; conflito real de horário não.
+      const res = await withTxRetry(() => prisma.$transaction(async (tx) => {
         await expireStaleHolds(tx, professionalId, now);
         const pro = await tx.professional.findFirstOrThrow({ where: { id: professionalId, tenantId: tenant.id } });
         // Crédito do cliente (Fase 2) abate o sinal; o resto vai via Pix.
@@ -273,12 +274,13 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
           },
         });
         return { created, useCredit };
-      });
+      }, BOOKING_TX));
       appointment = res.created;
       creditApplied = res.useCredit;
       break;
     } catch (err) {
-      if (isOverlapViolation(err)) continue; // concorrência: tenta o próximo profissional
+      // Conflito de horário (ou disputa que não se resolveu): tenta o próximo profissional.
+      if (isOverlapViolation(err) || isTransientTxError(err)) continue;
       throw err;
     }
   }
@@ -433,7 +435,7 @@ export async function rescheduleAppointment(
   const endsAt = addMinutes(newStart, appt.service.durationMinutes);
   const blockEndsAt = addMinutes(endsAt, appt.service.bufferMinutes);
   try {
-    await prisma.$transaction(async (tx) => {
+    await withTxRetry(() => prisma.$transaction(async (tx) => {
       await expireStaleHolds(tx, targetPro, now);
       const target = await tx.professional.findFirstOrThrow({ where: { id: targetPro, tenantId } });
       const res = await tx.appointment.updateMany({
@@ -457,9 +459,9 @@ export async function rescheduleAppointment(
           payloadJson: { from: appt.startsAt.toISOString(), to: newStart.toISOString(), professionalId: targetPro },
         },
       });
-    });
+    }, BOOKING_TX));
   } catch (err) {
-    if (isOverlapViolation(err)) throw Errors.slotTaken();
+    if (isOverlapViolation(err) || isTransientTxError(err)) throw Errors.slotTaken();
     throw err;
   }
   await scheduleAppointmentMessagesSafe(appt.id, "rescheduled");

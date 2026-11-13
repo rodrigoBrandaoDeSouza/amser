@@ -13,7 +13,7 @@ const schema = z.object({
   WHATSAPP_PROVIDER: z.enum(["mock", "meta"]).default("mock"),
   WHATSAPP_APP_SECRET: z.string().optional().default(""),
   WHATSAPP_VERIFY_TOKEN: z.string().optional().default(""),
-  WHATSAPP_GRAPH_VERSION: z.string().default("v21.0"),
+  WHATSAPP_GRAPH_VERSION: z.string().default("v27.0"),
   STORAGE_PROVIDER: z.enum(["local"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default(".uploads"),
   JOBS_SECRET: z.string().default("dev-jobs-secret"),

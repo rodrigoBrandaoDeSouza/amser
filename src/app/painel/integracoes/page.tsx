@@ -1,84 +1,144 @@
 import { requireTenantUser } from "@/lib/auth/session";
-import { Badge, Card, Field, Flash, Input, PageHeader } from "@/components/ui";
+import { Badge, Button, Card, Field, Flash, Input, PageHeader } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { messageUsage } from "@/lib/metrics";
 import { maskPhone } from "@/lib/format";
 import { env } from "@/lib/env";
-import { saveTemplatesAction, saveWhatsappAction } from "../actions";
+import { DEFAULT_TEMPLATES, OPT_OUT_FOOTER } from "@/lib/whatsapp/templates";
+import { provisionTemplatesAction, saveTemplatesAction, saveWhatsappAction, syncTemplatesAction } from "../actions";
 
 const EVENTS = [
   ["booking_confirmed", "Confirmação de agendamento"],
   ["payment_pending", "Pix pendente"],
   ["reminder", "Lembrete"],
-  ["presence_request", "Pedido de confirmação de presença"],
+  ["presence_request", "Confirmação de presença"],
   ["rescheduled", "Remarcação"],
   ["cancelled", "Cancelamento"],
+  ["waitlist_offer", "Lista de espera"],
 ] as const;
 
 const OUT_TONE = { pending: "amber", sent: "blue", delivered: "green", read: "green", failed: "red", dead: "red", skipped: "zinc" } as const;
+const TPL_TONE = (s: string) => (s === "APPROVED" ? "green" : s === "PENDING" || s === "IN_APPEAL" ? "amber" : s === "UNKNOWN" ? "zinc" : "red");
 
 export default async function IntegrationsPage({ searchParams }: { searchParams: SearchParams }) {
   const { tenant, db } = await requireTenantUser();
   const { ok, erro } = await flashParams(searchParams);
-  const [conn, templates, outbox, usage, pix] = await Promise.all([
+  const [conn, templates, outbox, usage] = await Promise.all([
     db.whatsappConnection.findFirst({}),
     db.messageTemplate.findMany({}),
     db.messageOutbox.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
     messageUsage(tenant.id),
-    db.paymentConnection.findFirst({}),
   ]);
   const tpl = (ev: string) => templates.find((t) => t.eventType === ev);
   const mock = env().WHATSAPP_PROVIDER === "mock";
+  const connected = conn?.status === "connected";
+  const webhookUrl = `${env().APP_URL.replace(/\/$/, "")}/api/integrations/whatsapp/webhook`;
 
   return (
     <>
-      <PageHeader title="Integrações" subtitle="WhatsApp oficial (Meta Cloud API) e Pix" />
+      <PageHeader title="Integrações" subtitle="WhatsApp Business Platform (API oficial da Meta) e Pix" />
       <Flash ok={ok} erro={erro} />
+      {mock && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Modo de teste: mensagens não saem de verdade (aparecem no log do servidor). Em produção use <code>WHATSAPP_PROVIDER=meta</code>.
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card
-          title="WhatsApp"
-          actions={<Badge tone={conn?.status === "connected" ? "green" : "amber"}>{conn?.status === "connected" ? "conectado" : mock ? "modo de teste" : "não conectado"}</Badge>}
+          title="1. Conectar o número"
+          actions={<Badge tone={connected ? "green" : conn?.status === "error" ? "red" : "amber"}>{connected ? "conectado" : conn?.status === "error" ? "erro" : "não conectado"}</Badge>}
         >
-          <p className="mb-4 text-sm text-zinc-600">
-            Use o número do seu negócio na WhatsApp Business Platform. Mensagens automáticas usam templates aprovados pela Meta.
-            Incluído no seu plano: {usage.quota} mensagens/mês (usadas: {usage.sent}).
-          </p>
+          {connected && conn && (
+            <div className="mb-4 rounded-lg bg-zinc-50 p-3 text-sm">
+              <div className="font-medium">{conn.verifiedName ?? "—"} · {conn.displayPhone ?? ""}</div>
+              <div className="text-zinc-600">
+                Qualidade: <Badge tone={conn.qualityRating === "GREEN" ? "green" : conn.qualityRating === "YELLOW" ? "amber" : conn.qualityRating === "RED" ? "red" : "zinc"}>{conn.qualityRating ?? "—"}</Badge>
+                {" "}· validado em {conn.lastCheckedAt?.toLocaleString("pt-BR")}
+              </div>
+            </div>
+          )}
+          {conn?.lastError && <p className="mb-3 text-sm text-red-700">{conn.lastError}</p>}
           <form action={saveWhatsappAction} className="grid gap-3 sm:grid-cols-2">
-            <Field label="Phone Number ID"><Input name="phoneNumberId" defaultValue={conn?.phoneNumberId ?? ""} /></Field>
-            <Field label="Número exibido"><Input name="displayPhone" defaultValue={conn?.displayPhone ?? ""} placeholder="+55 11 9…" /></Field>
+            <Field label="Phone Number ID" hint="Meta → WhatsApp → Configuração da API"><Input name="phoneNumberId" defaultValue={conn?.phoneNumberId ?? ""} inputMode="numeric" required /></Field>
+            <Field label="WhatsApp Business Account ID (WABA)"><Input name="wabaId" defaultValue={conn?.wabaId ?? ""} inputMode="numeric" required /></Field>
             <div className="sm:col-span-2">
-              <Field label="Token de acesso" hint={conn?.encryptedCredentials ? "Já configurado. Preencha só para substituir." : "Guardado criptografado. Nunca é exibido de volta."}>
-                <Input name="accessToken" type="password" autoComplete="off" />
+              <Field
+                label="Token de acesso permanente (usuário do sistema)"
+                hint={conn?.encryptedCredentials ? "Já configurado. Preencha só para substituir. Fica criptografado e nunca é exibido." : "Gerado no Gerenciador de Negócios com as permissões whatsapp_business_messaging e whatsapp_business_management."}
+              >
+                <Input name="accessToken" type="password" autoComplete="off" required={!conn?.encryptedCredentials} />
               </Field>
             </div>
-            <Field label="Enviar lembretes a partir de"><Input type="time" name="sendWindowStart" defaultValue={conn?.sendWindowStart ?? "08:00"} /></Field>
+            <Field label="Lembretes a partir de"><Input type="time" name="sendWindowStart" defaultValue={conn?.sendWindowStart ?? "08:00"} /></Field>
             <Field label="Até"><Input type="time" name="sendWindowEnd" defaultValue={conn?.sendWindowEnd ?? "21:00"} /></Field>
-            <div className="sm:col-span-2"><SubmitButton>Salvar WhatsApp</SubmitButton></div>
+            <div className="sm:col-span-2"><SubmitButton pendingText="Validando na Meta…">Salvar e validar</SubmitButton></div>
           </form>
+          <details className="mt-4 text-xs text-zinc-600">
+            <summary className="cursor-pointer">Configuração do webhook (uma vez, no app da Meta)</summary>
+            <p className="mt-2">URL de callback: <code className="break-all">{webhookUrl}</code></p>
+            <p>Campos: <code>messages</code> e <code>message_template_status_update</code>. O token de verificação fica com a equipe Amser.</p>
+          </details>
         </Card>
 
-        <Card title="Templates aprovados">
+        <Card
+          title="2. Templates de mensagem"
+          actions={
+            <div className="flex gap-2">
+              <form action={provisionTemplatesAction}><Button type="submit" disabled={!connected && !mock}>Criar na Meta</Button></form>
+              <form action={syncTemplatesAction}><Button variant="secondary" type="submit" disabled={!connected && !mock}>Atualizar status</Button></form>
+            </div>
+          }
+        >
           <p className="mb-3 text-sm text-zinc-600">
-            Nome do template aprovado na Meta para cada evento. Variáveis do corpo: {"{{1}}"} nome do cliente, {"{{2}}"} serviço, {"{{3}}"} data/hora,
-            {" {{4}}"} nome do negócio. Botão de URL: <code className="text-xs">{env().APP_URL}/a/{"{{1}}"}</code>.
+            Mensagens automáticas só podem usar templates aprovados pela Meta (categoria Utilidade). Criamos os modelos padrão com o rodapé “{OPT_OUT_FOOTER}”.
+            Incluído no seu plano: {usage.quota} mensagens/mês (usadas: {usage.sent}).
           </p>
-          <form action={saveTemplatesAction} className="space-y-2">
-            {EVENTS.map(([ev, label]) => (
-              <div key={ev} className="grid grid-cols-[1fr_auto] items-end gap-2">
-                <Field label={label}><Input name={`tpl_${ev}`} defaultValue={tpl(ev)?.providerTemplateId ?? ""} placeholder={`amser_${ev}`} /></Field>
-                <label className="flex items-center gap-1 pb-2 text-sm"><input type="checkbox" name={`on_${ev}`} defaultChecked={tpl(ev)?.enabled ?? true} /> ativo</label>
-              </div>
-            ))}
-            <SubmitButton variant="secondary">Salvar templates</SubmitButton>
-          </form>
+          <ul className="divide-y divide-zinc-100 text-sm">
+            {EVENTS.map(([ev, label]) => {
+              const t = tpl(ev);
+              const def = DEFAULT_TEMPLATES.find((d) => d.event === ev);
+              return (
+                <li key={ev} className="flex flex-wrap items-center gap-2 py-2">
+                  <span className="font-medium">{label}</span>
+                  <code className="text-xs text-zinc-500">{t?.providerTemplateId ?? def?.name}</code>
+                  <span className="ml-auto flex items-center gap-1">
+                    {t ? <Badge tone={TPL_TONE(t.status)}>{t.status === "UNKNOWN" ? "não sincronizado" : t.status}</Badge> : <Badge>não criado</Badge>}
+                    {t?.rejectedReason && t.rejectedReason !== "NONE" && <span className="text-xs text-red-700">{t.rejectedReason}</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer text-zinc-700">Usar templates próprios (avançado)</summary>
+            <form action={saveTemplatesAction} className="mt-3 space-y-2">
+              {EVENTS.map(([ev, label]) => (
+                <div key={ev} className="grid grid-cols-[1fr_auto] items-end gap-2">
+                  <Field label={label}><Input name={`tpl_${ev}`} defaultValue={tpl(ev)?.providerTemplateId ?? ""} placeholder={DEFAULT_TEMPLATES.find((d) => d.event === ev)?.name} /></Field>
+                  <label className="flex items-center gap-1 pb-2 text-sm"><input type="checkbox" name={`on_${ev}`} defaultChecked={tpl(ev)?.enabled ?? true} /> ativo</label>
+                </div>
+              ))}
+              <p className="text-xs text-zinc-500">Variáveis do corpo: {"{{1}}"} cliente, {"{{2}}"} serviço, {"{{3}}"} data/hora, {"{{4}}"} negócio. Botão URL (índice 0) com sufixo {"{{1}}"}.</p>
+              <SubmitButton variant="secondary">Salvar nomes</SubmitButton>
+            </form>
+          </details>
         </Card>
 
-        <Card title="Pix (sinal)" actions={<Badge tone={pix?.status === "connected" ? "green" : "amber"}>{pix?.status === "connected" ? "conectado" : "modo de teste"}</Badge>}>
+        <Card title="Pix (sinal)" actions={<Badge tone="amber">modo de teste</Badge>}>
           <p className="text-sm text-zinc-600">
-            O sinal cai direto na conta do seu negócio no provedor de pagamento — o Amser não recebe nem repassa valores.
+            O sinal é cobrado só por Pix e cai direto na conta do seu negócio no provedor de pagamento — o Amser não recebe nem repassa valores.
             A integração com o provedor definitivo será liberada em breve; até lá, as cobranças funcionam em modo de teste.
           </p>
+        </Card>
+
+        <Card title="Como o cliente interage" className="text-sm">
+          <ul className="list-disc space-y-1 pl-5 text-zinc-600">
+            <li>Na confirmação de presença, o cliente toca em <strong>Confirmo presença</strong> e o agendamento é confirmado na hora.</li>
+            <li>Em <strong>Preciso remarcar</strong>, recebe o link para escolher outro horário.</li>
+            <li>Se responder <strong>SAIR</strong>, paramos todas as mensagens automáticas para ele (LGPD).</li>
+            <li>Outras mensagens chegam no seu WhatsApp normalmente para você responder.</li>
+          </ul>
         </Card>
 
         <Card title="Últimas mensagens" className="lg:col-span-2">
@@ -95,7 +155,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                     <td className="px-2">{maskPhone(m.toPhoneE164)}</td>
                     <td className="px-2"><Badge tone={OUT_TONE[m.status]}>{m.status}</Badge></td>
                     <td className="px-2 tabular-nums">{m.attempts}</td>
-                    <td className="max-w-xs truncate px-2 text-xs text-zinc-500">{m.lastError ?? ""}</td>
+                    <td className="max-w-xs truncate px-2 text-xs text-zinc-500" title={m.lastError ?? ""}>{m.lastError ?? ""}</td>
                   </tr>
                 ))}
                 {!outbox.length && <tr><td colSpan={6} className="px-2 py-6 text-center text-zinc-500">Nenhuma mensagem ainda.</td></tr>}

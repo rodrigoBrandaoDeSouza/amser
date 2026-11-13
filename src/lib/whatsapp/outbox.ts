@@ -4,7 +4,14 @@ import { decryptJson } from "../crypto";
 import { env } from "../env";
 import { formatDateTime, wallParts, zonedToUtc, localDate, addDays } from "../time";
 import { actionTokenExpiry, signActionToken } from "../tokens";
-import { whatsappProvider, WhatsappSendError } from "./provider";
+import { whatsappProvider, WhatsappSendError, type Credentials } from "./provider";
+import { DEFAULT_TEMPLATES, definitionFor } from "./templates";
+import type { WhatsappConnection } from "@prisma/client";
+
+function credentialsOf(conn: WhatsappConnection | null): Credentials {
+  const token = conn?.encryptedCredentials ? decryptJson<{ accessToken: string }>(conn.encryptedCredentials).accessToken : null;
+  return { phoneNumberId: conn?.phoneNumberId ?? null, wabaId: conn?.wabaId ?? null, accessToken: token };
+}
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -182,6 +189,13 @@ export async function processOutbox(now = new Date(), limit = 50): Promise<{ sen
         continue;
       }
 
+      // Consentimento verificado também no momento do envio (o cliente pode ter saído).
+      const customer = await prisma.customer.findFirst({ where: { tenantId: msg.tenantId, phoneE164: msg.toPhoneE164 } });
+      if (customer && (customer.optedOutAt || (customer.consentJson as Record<string, unknown>)?.whatsapp !== true)) {
+        await skip("cliente sem consentimento");
+        continue;
+      }
+
       const template = await prisma.messageTemplate.findUnique({
         where: { tenantId_eventType: { tenantId: msg.tenantId, eventType: msg.eventType } },
       });
@@ -189,20 +203,35 @@ export async function processOutbox(now = new Date(), limit = 50): Promise<{ sen
         await skip("template desativado");
         continue;
       }
-      if (!template && provider.name !== "mock") {
-        await skip("template não configurado");
-        continue;
+      if (provider.name !== "mock") {
+        if (!template) {
+          await skip("template não configurado");
+          continue;
+        }
+        if (template.status === "PENDING" || template.status === "UNKNOWN" || template.status === "IN_APPEAL") {
+          // Ainda em análise na Meta: tenta de novo em 30 min, se ainda fizer sentido.
+          const retryAt = new Date(now.getTime() + 30 * 60_000);
+          if (appt && retryAt >= appt.startsAt) await skip("template ainda não aprovado");
+          else await prisma.messageOutbox.update({ where: { id: msg.id }, data: { scheduledAt: retryAt, attempts: msg.attempts, lastError: "template em análise na Meta" } });
+          continue;
+        }
+        if (template.status !== "APPROVED") {
+          await skip(`template ${template.status}`);
+          continue;
+        }
       }
 
-      const creds = conn?.encryptedCredentials ? decryptJson<{ accessToken: string }>(conn.encryptedCredentials) : null;
+      const templateName = template?.providerTemplateId ?? definitionFor(msg.eventType).name;
+      // Botão URL só quando o template padrão tem (o de presença usa só respostas rápidas).
+      const known = DEFAULT_TEMPLATES.find((d) => d.name === templateName);
+      const hasUrlButton = known ? !!known.url : true;
       const { providerMessageId } = await provider.sendTemplate({
-        phoneNumberId: conn?.phoneNumberId ?? null,
-        accessToken: creds?.accessToken ?? null,
+        ...credentialsOf(conn),
         toE164: msg.toPhoneE164,
-        templateName: template?.providerTemplateId ?? `amser_${msg.eventType}`,
+        templateName,
         language: template?.language ?? "pt_BR",
         bodyParams: [payload.customerName, payload.serviceName, payload.when, payload.tenantName],
-        buttonUrlParam: payload.token,
+        buttonUrlParam: hasUrlButton ? payload.token : undefined,
       });
 
       await prisma.$transaction([
@@ -223,6 +252,14 @@ export async function processOutbox(now = new Date(), limit = 50): Promise<{ sen
       const retryable = !(err instanceof WhatsappSendError) || err.retryable;
       const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
       const dead = !retryable || attempt >= MAX_ATTEMPTS;
+      if (err instanceof WhatsappSendError && err.kind === "opt_out") {
+        // 131050/130403: o cliente bloqueou ou saiu — respeitar e parar de enviar.
+        const { optOutCustomer } = await import("./service");
+        await optOutCustomer(msg.tenantId, msg.toPhoneE164, `meta:${err.code}`);
+      }
+      if (err instanceof WhatsappSendError && err.kind === "auth") {
+        await prisma.whatsappConnection.updateMany({ where: { tenantId: msg.tenantId }, data: { status: "error", lastError: message } });
+      }
       await prisma.messageOutbox.update({
         where: { id: msg.id },
         data: dead

@@ -290,34 +290,52 @@ export async function restoreThemeAction(brandingId: string) {
 // ---------------------------------------------------------------- integrações
 
 export async function saveWhatsappAction(fd: FormData) {
-  const { user, tenant, db } = await requireTenantUser();
+  const { user, tenant } = await requireTenantUser();
   await runAction("/painel/integracoes", async () => {
-    const existing = await db.whatsappConnection.findFirst({});
-    const token = str(fd, "accessToken");
     const ws = str(fd, "sendWindowStart") || "08:00";
     const we = str(fd, "sendWindowEnd") || "21:00";
     if (!isValidTime(ws) || !isValidTime(we) || ws >= we) throw Errors.validation("Janela de envio inválida");
-    const data = {
-      provider: "meta",
-      phoneNumberId: str(fd, "phoneNumberId") || null,
-      displayPhone: str(fd, "displayPhone") || null,
+    const { saveAndTestConnection } = await import("@/lib/whatsapp/service");
+    // Token nunca volta para o navegador; só é substituído se um novo for enviado.
+    const r = await saveAndTestConnection(tenant.id, user.id, {
+      phoneNumberId: str(fd, "phoneNumberId"),
+      wabaId: str(fd, "wabaId"),
+      accessToken: str(fd, "accessToken") || null,
       sendWindowStart: ws,
       sendWindowEnd: we,
-      // Token nunca volta para o navegador; só é substituído se um novo for enviado.
-      ...(token ? { encryptedCredentials: encryptJson({ accessToken: token }) } : {}),
-      status: (str(fd, "phoneNumberId") && (token || existing?.encryptedCredentials) ? "connected" : "pending") as "connected" | "pending",
-    };
-    if (existing) await db.whatsappConnection.update({ where: { id: existing.id }, data });
-    else await db.whatsappConnection.create({ data: { ...data, tenantId: tenant.id } });
-    await audit({ tenantId: tenant.id, actorId: user.id, action: "whatsapp.configure", resource: `tenant:${tenant.id}` });
-    return "WhatsApp salvo";
+    });
+    const name = r.info?.verifiedName ? ` (${r.info.verifiedName} · ${r.info.displayPhoneNumber})` : "";
+    return r.subscribeWarning
+      ? `Número validado${name}, mas não consegui inscrever o app na WABA: ${r.subscribeWarning}. Configure o webhook no painel da Meta.`
+      : `WhatsApp conectado e validado na Meta${name}`;
+  });
+}
+
+export async function provisionTemplatesAction() {
+  const { user, tenant } = await requireTenantUser();
+  await runAction("/painel/integracoes", async () => {
+    const { provisionTemplates } = await import("@/lib/whatsapp/service");
+    const r = await provisionTemplates(tenant.id, user.id);
+    const errors = r.filter((x) => x.error);
+    return errors.length
+      ? `${r.length - errors.length} template(s) enviados para análise; ${errors.length} com erro: ${errors.map((e) => `${e.name} (${e.error})`).join("; ")}`
+      : `${r.length} templates enviados para análise da Meta. A aprovação costuma levar de minutos a algumas horas.`;
+  });
+}
+
+export async function syncTemplatesAction() {
+  const { tenant } = await requireTenantUser();
+  await runAction("/painel/integracoes", async () => {
+    const { syncTemplates } = await import("@/lib/whatsapp/service");
+    const n = await syncTemplates(tenant.id);
+    return `Status de ${n} template(s) atualizado`;
   });
 }
 
 export async function saveTemplatesAction(fd: FormData) {
   const { tenant, db } = await requireTenantUser();
   await runAction("/painel/integracoes", async () => {
-    const events: MessageEvent[] = ["booking_confirmed", "payment_pending", "reminder", "presence_request", "rescheduled", "cancelled"];
+    const events: MessageEvent[] = ["booking_confirmed", "payment_pending", "reminder", "presence_request", "rescheduled", "cancelled", "waitlist_offer"];
     for (const ev of events) {
       const name = str(fd, `tpl_${ev}`);
       const enabled = fd.get(`on_${ev}`) === "on";

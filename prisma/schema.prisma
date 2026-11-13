@@ -181,6 +181,10 @@ model Tenant {
   // Fase 2 — suspensão por cobrança
   suspendedReason         String?           @map("suspended_reason")
   statusBeforeSuspension  TenantStatus?     @map("status_before_suspension")
+  // LGPD e operação
+  retentionMonths         Int               @default(24) @map("retention_months")
+  deletionScheduledAt     DateTime?         @map("deletion_scheduled_at") @db.Timestamptz(3)
+  supportAccessUntil      DateTime?         @map("support_access_until") @db.Timestamptz(3)
   createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
   branding            TenantBranding[]
@@ -256,16 +260,24 @@ model Unit {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  tenantId     String?       @map("tenant_id")
-  tenant       Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name         String
-  email        String        @unique
-  passwordHash String        @map("password_hash")
-  role         UserRole
-  status       UserStatus    @default(active)
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  professional Professional?
+  id                 String        @id @default(cuid())
+  tenantId           String?       @map("tenant_id")
+  tenant             Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name               String
+  email              String        @unique
+  passwordHash       String        @map("password_hash")
+  role               UserRole
+  status             UserStatus    @default(active)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  emailVerifiedAt    DateTime?     @map("email_verified_at") @db.Timestamptz(3)
+  mfaSecretEncrypted String?       @map("mfa_secret_encrypted")
+  mfaEnabledAt       DateTime?     @map("mfa_enabled_at") @db.Timestamptz(3)
+  /// Permissões configuráveis da equipe (staff)
+  permissionsJson    Json          @default("{}") @map("permissions_json")
+  /// Sessões emitidas antes disso são inválidas (troca/redefinição de senha)
+  sessionsValidAfter DateTime?     @map("sessions_valid_after") @db.Timestamptz(3)
+  professional       Professional?
+  authTokens         AuthToken[]
 
   @@index([tenantId])
   @@map("users")
@@ -366,19 +378,23 @@ model ScheduleException {
 }
 
 model Customer {
-  id           String           @id @default(cuid())
-  tenantId     String           @map("tenant_id")
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name         String
-  phoneE164    String           @map("phone_e164")
-  email        String?
-  notes        String?
-  tags         String[]         @default([])
-  consentJson  Json             @default("{}") @map("consent_json")
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  appointments Appointment[]
-  credits      CustomerCredit[]
-  waitlist     WaitlistEntry[]
+  id             String           @id @default(cuid())
+  tenantId       String           @map("tenant_id")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  phoneE164      String           @map("phone_e164")
+  email          String?
+  notes          String?
+  tags           String[]         @default([])
+  consentJson    Json             @default("{}") @map("consent_json")
+  /// Business-scoped user ID do WhatsApp (recomendado pela Meta)
+  whatsappUserId String?          @map("whatsapp_user_id")
+  optedOutAt     DateTime?        @map("opted_out_at") @db.Timestamptz(3)
+  anonymizedAt   DateTime?        @map("anonymized_at") @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  appointments   Appointment[]
+  credits        CustomerCredit[]
+  waitlist       WaitlistEntry[]
 
   @@unique([tenantId, phoneE164])
   @@map("customers")
@@ -497,6 +513,11 @@ model WhatsappConnection {
   status               ConnectionStatus @default(pending)
   sendWindowStart      String           @default("08:00") @map("send_window_start")
   sendWindowEnd        String           @default("21:00") @map("send_window_end")
+  wabaId               String?          @map("waba_id")
+  verifiedName         String?          @map("verified_name")
+  qualityRating        String?          @map("quality_rating")
+  lastCheckedAt        DateTime?        @map("last_checked_at") @db.Timestamptz(3)
+  lastError            String?          @map("last_error")
   createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("whatsapp_connections")
@@ -509,6 +530,12 @@ model MessageTemplate {
   providerTemplateId String       @map("provider_template_id")
   language           String       @default("pt_BR")
   enabled            Boolean      @default(true)
+  /// Status na Meta: APPROVED, PENDING, REJECTED, PAUSED, DISABLED… (UNKNOWN = nunca sincronizado)
+  status             String       @default("UNKNOWN")
+  category           String?
+  rejectedReason     String?      @map("rejected_reason")
+  metaTemplateId     String?      @map("meta_template_id")
+  lastSyncedAt       DateTime?    @map("last_synced_at") @db.Timestamptz(3)
 
   @@unique([tenantId, eventType])
   @@map("message_templates")
@@ -690,4 +717,33 @@ model InstagramConnection {
   refreshedAt    DateTime? @map("refreshed_at") @db.Timestamptz(3)
 
   @@map("instagram_connections")
+}
+
+// ============================== Completo (pós-Fase 2) ==============================
+
+/// Tokens de uso único (redefinição de senha, verificação de e-mail). Guardamos só o hash.
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   String
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, purpose])
+  @@map("auth_tokens")
+}
+
+/// Feature flags: scope = "global" ou o id do tenant (sobrescreve o global).
+model FeatureFlag {
+  id        String   @id @default(cuid())
+  key       String
+  scope     String   @default("global")
+  enabled   Boolean
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([key, scope])
+  @@map("feature_flags")
 }
