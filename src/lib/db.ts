@@ -7,7 +7,7 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
  * resolver o tenant) e resolução de slug público. Todo o resto usa tenantDb().
  */
 export const prisma: PrismaClient =
-  globalForPrisma.prisma ?? new PrismaClient({ log: ["warn", "error"] });
+  globalForPrisma.prisma ?? new PrismaClient({ log: ["warn"] });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 

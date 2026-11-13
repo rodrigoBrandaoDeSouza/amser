@@ -44,7 +44,7 @@ export function slugify(input: string): string {
 
 const RESERVED_SLUGS = new Set([
   "admin", "api", "painel", "login", "logout", "preview", "media", "public", "static",
-  "_next", "favicon.ico", "robots.txt", "sitemap.xml", "agendamento", "a", "amser",
+  "_next", "favicon.ico", "robots.txt", "sitemap.xml", "agendamento", "a", "amser", "marca-preview",
 ]);
 
 export function isValidSlug(slug: string): boolean {

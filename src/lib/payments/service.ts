@@ -1,4 +1,4 @@
-import { prisma, isUniqueViolation } from "../db";
+import { prisma } from "../db";
 import { audit } from "../audit";
 import { paymentProvider, InvalidSignatureError } from "./provider";
 import { scheduleAppointmentMessagesSafe } from "../whatsapp/outbox";
@@ -24,12 +24,11 @@ export async function handlePaymentWebhook(providerName: string, rawBody: string
   }
   if (!event) return { ok: true, outcome: "ignored" };
 
-  try {
-    await prisma.webhookEvent.create({ data: { provider: providerName, externalId: event.eventId } });
-  } catch (err) {
-    if (isUniqueViolation(err)) return { ok: true, outcome: "duplicate" };
-    throw err;
-  }
+  const inserted = await prisma.webhookEvent.createMany({
+    data: [{ provider: providerName, externalId: event.eventId }],
+    skipDuplicates: true,
+  });
+  if (inserted.count === 0) return { ok: true, outcome: "duplicate" };
 
   const payment = await prisma.payment.findUnique({ where: { providerChargeId: event.chargeId } });
   if (!payment) return { ok: true, outcome: "ignored" };
