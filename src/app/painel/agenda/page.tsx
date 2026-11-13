@@ -7,6 +7,8 @@ import { dayBounds } from "@/lib/scheduling/availability";
 import { addDays, formatTime, isValidDate, localDate } from "@/lib/time";
 import { formatBRL, maskPhone } from "@/lib/format";
 import { appointmentAction, blockTimeAction, deleteBlockAction, manualBookingAction, rescheduleStaffAction } from "../actions";
+import { can } from "@/lib/auth/permissions";
+import { WeekAgenda } from "./WeekAgenda";
 
 export default async function AgendaPage({ searchParams }: { searchParams: SearchParams }) {
   const { user, tenant, db, professional } = await requireTenantUser({ allowStaff: true });
@@ -16,9 +18,33 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
   const date = isValidDate(get("data") ?? "") ? get("data")! : today;
   const bounds = dayBounds(date, tz);
   const back = `/painel/agenda?data=${date}`;
-  const onlyPro = professional?.id;
+  // Staff vê só a própria agenda, a menos que tenha a permissão "ver todas".
+  const onlyPro = professional && !can(user, "viewAllAgendas") ? professional.id : undefined;
+  const canManage = can(user, "manageBookings");
   const units = await db.unit.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
   const unitFilter = units.some((u) => u.id === get("unidade")) ? get("unidade")! : null;
+  const view = get("visao") === "semana" ? "semana" : "dia";
+  const viewToggle = (
+    <div className="mb-4 inline-flex rounded-lg border bg-white p-0.5 text-sm">
+      {(["dia", "semana"] as const).map((v) => (
+        <Link
+          key={v}
+          href={`/painel/agenda?data=${date}&visao=${v}${unitFilter ? `&unidade=${unitFilter}` : ""}`}
+          className={`rounded-md px-3 py-1 capitalize ${view === v ? "bg-zinc-900 text-white" : "text-zinc-700"}`}
+        >
+          {v}
+        </Link>
+      ))}
+    </div>
+  );
+  if (view === "semana") {
+    return (
+      <>
+        {viewToggle}
+        <WeekAgenda tenantId={tenant.id} tz={tz} date={date} onlyPro={onlyPro} unitFilter={unitFilter} title={onlyPro ? "Minha semana" : "Semana"} />
+      </>
+    );
+  }
 
   const [pros, appts, blocks, services] = await Promise.all([
     db.professional.findMany({
@@ -70,6 +96,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
         }
       />
       <Flash ok={ok} erro={erro} />
+      {viewToggle}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {pros.map((p) => {
@@ -109,7 +136,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
                         </a>
                         <span className="text-zinc-500"> · {a.service.name} · {formatBRL(a.priceSnapshotCents)}</span>
                       </div>
-                      {active && (
+                      {active && canManage && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <form action={appointmentAction.bind(null, a.id, "concluido", back)}><Button variant="secondary" type="submit">Concluído</Button></form>
                           <form action={appointmentAction.bind(null, a.id, "nao_compareceu", back)}><Button variant="secondary" type="submit">Faltou</Button></form>
@@ -135,6 +162,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
         })}
       </div>
 
+      {canManage && (
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card title="Agendamento manual (recepção)">
           <form action={manualBookingAction} className="grid gap-3 sm:grid-cols-2">
@@ -185,6 +213,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Searc
           </form>
         </Card>
       </div>
+      )}
     </>
   );
 }

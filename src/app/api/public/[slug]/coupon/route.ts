@@ -2,6 +2,7 @@ import { getPublicTenant } from "@/lib/public";
 import { quoteCoupon } from "@/lib/coupons";
 import { computeDepositCents } from "@/lib/scheduling/deposit";
 import { tenantDb } from "@/lib/db";
+import { isEnabled } from "@/lib/flags";
 import { Errors } from "@/lib/errors";
 import { errorResponse, json, limit } from "@/lib/http";
 
@@ -11,6 +12,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     limit(req, "coupon", 15, 10 * 60_000);
     const tenant = await getPublicTenant((await params).slug);
     if (!tenant) throw Errors.notFound("Página");
+    if (!(await isEnabled("coupons", tenant.id))) throw Errors.validation("Cupons indisponíveis no momento");
     const url = new URL(req.url);
     const service = await tenantDb(tenant.id).service.findFirst({ where: { id: url.searchParams.get("serviceId") ?? "", active: true } });
     if (!service) throw Errors.notFound("Serviço");

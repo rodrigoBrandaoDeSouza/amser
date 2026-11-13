@@ -10,6 +10,7 @@ import { audit } from "@/lib/audit";
 import { encryptJson } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
 import { assertWithinPlan } from "@/lib/plans";
+import { can } from "@/lib/auth/permissions";
 import { createBooking, cancelAppointment, confirmPresence, markOutcome, rescheduleAppointment } from "@/lib/scheduling/booking";
 import { uploadTenantImage, deleteTenantImage, createOwnerUser } from "@/lib/tenants";
 import { analyzeBranding, publishBranding, restoreBranding, updateDraft, saveDraft, latestTheme } from "@/lib/branding/service";
@@ -17,13 +18,23 @@ import { FONTS, STYLES, ThemeSchema, normalizeEditedTheme, type Theme } from "@/
 
 // ---------------------------------------------------------------- agenda
 
+/**
+ * Staff: precisa da permissão "manageBookings" e, sem "viewAllAgendas", só
+ * mexe nos agendamentos do próprio profissional.
+ */
+async function assertStaffMayManage(user: { role: string; permissionsJson: unknown }, tenantId: string, appointmentId: string | null, professionalId?: string) {
+  if (user.role !== "staff") return;
+  if (!can(user, "manageBookings")) throw Errors.forbidden();
+  if (appointmentId && !can(user, "viewAllAgendas")) {
+    const own = await prisma.appointment.findFirst({ where: { id: appointmentId, tenantId, professionalId: professionalId ?? "__none__" } });
+    if (!own) throw Errors.forbidden();
+  }
+}
+
 export async function appointmentAction(appointmentId: string, op: "concluido" | "nao_compareceu" | "cancelar" | "confirmar", back: string) {
   const { user, tenant, professional } = await requireTenantUser({ allowStaff: true });
   await runAction(back, async () => {
-    if (professional) {
-      const own = await prisma.appointment.findFirst({ where: { id: appointmentId, tenantId: tenant.id, professionalId: professional.id } });
-      if (!own) throw Errors.forbidden();
-    }
+    await assertStaffMayManage(user, tenant.id, appointmentId, professional?.id);
     if (op === "cancelar") await cancelAppointment(tenant.id, appointmentId, { kind: "staff", userId: user.id }, "cancelado pela equipe");
     else if (op === "confirmar") await confirmPresence(tenant.id, appointmentId);
     else await markOutcome(tenant.id, appointmentId, op, user.id);
@@ -33,8 +44,9 @@ export async function appointmentAction(appointmentId: string, op: "concluido" |
 }
 
 export async function rescheduleStaffAction(appointmentId: string, back: string, fd: FormData) {
-  const { user, tenant } = await requireTenantUser({ allowStaff: true });
+  const { user, tenant, professional } = await requireTenantUser({ allowStaff: true });
   await runAction(back, async () => {
+    await assertStaffMayManage(user, tenant.id, appointmentId, professional?.id);
     const date = str(fd, "date");
     const time = str(fd, "time");
     if (!isValidDate(date) || !isValidTime(time)) throw Errors.validation("Data/hora inválida");
@@ -44,15 +56,18 @@ export async function rescheduleStaffAction(appointmentId: string, back: string,
 }
 
 export async function manualBookingAction(fd: FormData) {
-  const { user, tenant } = await requireTenantUser({ allowStaff: true });
+  const { user, tenant, professional } = await requireTenantUser({ allowStaff: true });
   const date = str(fd, "date");
   await runAction(`/painel/agenda?data=${date}`, async () => {
+    await assertStaffMayManage(user, tenant.id, null);
     const time = str(fd, "time");
     if (!isValidDate(date) || !isValidTime(time)) throw Errors.validation("Data/hora inválida");
+    // Staff sem "ver todas as agendas" só agenda para si.
+    const proId = user.role === "staff" && !can(user, "viewAllAgendas") ? (professional?.id ?? "__none__") : str(fd, "professionalId") || null;
     await createBooking({
       tenant,
       serviceId: str(fd, "serviceId"),
-      professionalId: str(fd, "professionalId") || null,
+      professionalId: proId,
       startsAt: zonedToUtc(date, time, tenant.timezone).toISOString(),
       customer: { name: str(fd, "name"), phone: str(fd, "phone"), email: null, consentWhatsapp: fd.get("consent") === "on" },
       source: "manual",
@@ -70,7 +85,8 @@ export async function blockTimeAction(fd: FormData) {
     const start = str(fd, "start") || "00:00";
     const end = str(fd, "end") || "23:59";
     if (!isValidDate(date) || !isValidTime(start) || !isValidTime(end) || start >= end) throw Errors.validation("Período inválido");
-    const proId = professional?.id ?? (str(fd, "professionalId") || null);
+    await assertStaffMayManage(user, tenant.id, null);
+    const proId = user.role === "staff" && !can(user, "viewAllAgendas") ? (professional?.id ?? null) : str(fd, "professionalId") || null;
     if (!proId && user.role !== "owner") throw Errors.forbidden();
     await db.scheduleException.create({
       data: {

@@ -1,5 +1,5 @@
 import type { Appointment, AppointmentStatus, Prisma, Tenant } from "@prisma/client";
-import { prisma, isOverlapViolation, isTransientTxError, withTxRetry, BOOKING_TX, tenantDb } from "../db";
+import { prisma, isOverlapViolation, isTransientTxError, withTxRetry, BOOKING_TX, lockProfessionalSchedule, tenantDb } from "../db";
 import { Errors, AppError } from "../errors";
 import { addMinutes, localDate, isValidDate, weekdayOf } from "../time";
 import { computeSlots, dayBounds, type Interval } from "./availability";
@@ -11,6 +11,7 @@ import { scheduleAppointmentMessagesSafe } from "../whatsapp/outbox";
 import { actionTokenExpiry, signActionToken } from "../tokens";
 import { upsertCustomer, parseCustomer, type CustomerInput } from "../customers";
 import { quoteCoupon, redeemCoupon, releaseCoupon } from "../coupons";
+import { isEnabled } from "../flags";
 
 export const ACTIVE_STATUSES: AppointmentStatus[] = ["aguardando_sinal", "pendente", "confirmado"];
 
@@ -213,6 +214,7 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
   let discountCents = 0;
   let couponId: string | null = null;
   if (input.couponCode?.trim()) {
+    if (!(await isEnabled("coupons", tenant.id))) throw Errors.validation("Cupons indisponíveis no momento");
     const q = await quoteCoupon({ tenantId: tenant.id, code: input.couponCode, serviceId: service.id, priceCents: service.priceCents, customerId: customer.id, now });
     discountCents = q.discountCents;
     couponId = q.coupon.id;
@@ -228,6 +230,7 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
     try {
       // withTxRetry: deadlock/timeout de lock sob disputa são retentados; conflito real de horário não.
       const res = await withTxRetry(() => prisma.$transaction(async (tx) => {
+        await lockProfessionalSchedule(tx, professionalId);
         await expireStaleHolds(tx, professionalId, now);
         const pro = await tx.professional.findFirstOrThrow({ where: { id: professionalId, tenantId: tenant.id } });
         // Crédito do cliente (Fase 2) abate o sinal; o resto vai via Pix.
@@ -436,6 +439,7 @@ export async function rescheduleAppointment(
   const blockEndsAt = addMinutes(endsAt, appt.service.bufferMinutes);
   try {
     await withTxRetry(() => prisma.$transaction(async (tx) => {
+      await lockProfessionalSchedule(tx, targetPro);
       await expireStaleHolds(tx, targetPro, now);
       const target = await tx.professional.findFirstOrThrow({ where: { id: targetPro, tenantId } });
       const res = await tx.appointment.updateMany({

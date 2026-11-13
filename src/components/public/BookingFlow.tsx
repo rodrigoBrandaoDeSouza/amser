@@ -34,6 +34,7 @@ export function BookingFlow({
   today,
   cardStyle = "border",
   waitlistEnabled = false,
+  couponsEnabled = true,
 }: {
   slug: string;
   services: PublicService[];
@@ -44,6 +45,7 @@ export function BookingFlow({
   timeZone: string;
   cardStyle?: string;
   waitlistEnabled?: boolean;
+  couponsEnabled?: boolean;
 }) {
   const router = useRouter();
   const multiUnit = units.length > 1;
@@ -364,6 +366,7 @@ export function BookingFlow({
             <span className="mb-1 block text-sm font-medium">E-mail (opcional)</span>
             <input type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="pub-chip w-full bg-transparent px-3 py-2.5" />
           </label>
+          {couponsEnabled && (
           <div>
             <span className="mb-1 block text-sm font-medium">Cupom (opcional)</span>
             <div className="flex gap-2">
@@ -381,6 +384,7 @@ export function BookingFlow({
             {coupon.applied && <p className="mt-1 text-sm">Cupom {coupon.applied.code}: −{brl(coupon.applied.discountCents)}</p>}
             {coupon.error && <p className="mt-1 text-sm" role="alert">{coupon.error}</p>}
           </div>
+          )}
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} className="mt-1" />
             <span>Quero receber confirmação e lembretes deste agendamento pelo WhatsApp.</span>

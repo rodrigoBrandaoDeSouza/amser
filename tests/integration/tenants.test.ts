@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { demoPng } from "@/lib/demo-image";
 import { prisma, tenantDb } from "@/lib/db";
 import { createTenant, convertProspect, seedExampleCatalog, uploadTenantImage } from "@/lib/tenants";
 import { analyzeBranding, publishBranding, restoreBranding, publishedTheme } from "@/lib/branding/service";
@@ -8,7 +9,7 @@ import { resetDb } from "./helpers";
 
 beforeEach(resetDb);
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
+const PNG = demoPng([200, 100, 150], [20, 20, 20], 64);
 
 async function admin() {
   return prisma.user.create({ data: { name: "Admin", email: `admin${Math.random()}@x.dev`, passwordHash: "x", role: "superadmin" } });

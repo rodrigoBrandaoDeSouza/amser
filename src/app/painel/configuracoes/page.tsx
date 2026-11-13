@@ -7,6 +7,7 @@ import { VERIFY_PREFIX } from "@/lib/domains";
 import { env } from "@/lib/env";
 import { saveSettingsAction } from "../actions";
 import { addDomainAction, removeDomainAction, savePoliciesAction, verifyDomainAction } from "../actions-fase2";
+import { grantSupportAction, revokeSupportAction, saveRetentionAction } from "../actions-completo";
 
 export default async function SettingsPage({ searchParams }: { searchParams: SearchParams }) {
   const { tenant, db } = await requireTenantUser();
@@ -116,6 +117,36 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
             <Field label="Domínio"><Input name="hostname" placeholder="agenda.seunegocio.com.br" required /></Field>
             <SubmitButton variant="secondary">Adicionar</SubmitButton>
           </form>
+        </Card>
+
+        <Card title="Privacidade dos clientes (LGPD)">
+          <form action={saveRetentionAction} className="space-y-3">
+            <Field label="Apagar automaticamente dados de clientes inativos há (meses)" hint="0 = nunca. Mínimo 6. O histórico fica anônimo nos relatórios.">
+              <Input type="number" name="retentionMonths" min={0} max={120} defaultValue={t.retentionMonths} />
+            </Field>
+            <SubmitButton variant="secondary">Salvar</SubmitButton>
+          </form>
+        </Card>
+
+        <Card title="Acesso de suporte Amser">
+          {t.supportAccessUntil && t.supportAccessUntil > new Date() ? (
+            <form action={revokeSupportAction} className="space-y-2">
+              <p className="text-sm">A equipe Amser pode acessar seu painel até <strong>{t.supportAccessUntil.toLocaleString("pt-BR")}</strong>. Tudo fica registrado.</p>
+              <SubmitButton variant="danger">Encerrar acesso agora</SubmitButton>
+            </form>
+          ) : (
+            <form action={grantSupportAction} className="flex flex-wrap items-end gap-2">
+              <p className="w-full text-sm text-zinc-600">Precisa de ajuda? Libere o acesso temporário para nossa equipe ver seu painel. Você pode encerrar quando quiser.</p>
+              <Field label="Por quanto tempo">
+                <Select name="hours" defaultValue="24">
+                  <option value="2">2 horas</option>
+                  <option value="24">24 horas</option>
+                  <option value="72">3 dias</option>
+                </Select>
+              </Field>
+              <SubmitButton variant="secondary">Liberar acesso</SubmitButton>
+            </form>
+          )}
         </Card>
       </div>
     </>

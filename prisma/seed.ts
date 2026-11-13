@@ -73,7 +73,7 @@ function demoPng(rgb: [number, number, number], rgb2: [number, number, number], 
 }
 
 async function addMedia(tenantId: string, kind: "logo" | "photo", png: Buffer) {
-  const key = await storage().put(tenantId, png, "png");
+  const key = await storage().put(tenantId, png, "png", "image/png");
   return prisma.tenantMedia.create({
     data: { tenantId, kind, storageKey: key, mimeType: "image/png", sizeBytes: png.length, rightsConfirmed: true, rightsConfirmedBy: "seed" },
   });

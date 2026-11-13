@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma, tenantDb } from "../db";
 import { Errors } from "../errors";
 import { storage } from "../storage";
+import { isEnabled } from "../flags";
 import { brandAnalyzer } from "./analyze";
 import { defaultTheme, finalizeTheme, normalizeEditedTheme, ThemeSchema, type Theme } from "./theme";
 
@@ -12,6 +13,7 @@ import { defaultTheme, finalizeTheme, normalizeEditedTheme, ThemeSchema, type Th
 export async function analyzeBranding(tenantId: string, opts: { preferences?: string | null; actorId?: string | null } = {}) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw Errors.notFound("Empresa");
+  if (!(await isEnabled("ai_branding", tenantId))) throw Errors.policy("O tema por IA está desativado no momento. Ajuste as cores e textos manualmente.");
   const db = tenantDb(tenantId);
   const media = await db.tenantMedia.findMany({ where: { rightsConfirmed: true }, orderBy: [{ kind: "asc" }, { createdAt: "asc" }], take: 8 });
   if (!media.length) throw Errors.validation("Envie ao menos uma imagem com direitos confirmados");

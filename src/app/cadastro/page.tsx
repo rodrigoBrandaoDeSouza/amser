@@ -9,9 +9,11 @@ import { flashParams, str, type SearchParams } from "@/lib/actions";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { selfSignup, uploadTenantImage } from "@/lib/tenants";
 import { createSession } from "@/lib/auth/session";
+import { sendVerificationEmail } from "@/lib/auth/account";
 import { analyzeBranding } from "@/lib/branding/service";
 import { AppError } from "@/lib/errors";
 import { env } from "@/lib/env";
+import { isEnabled } from "@/lib/flags";
 import { TRIAL_DAYS } from "@/lib/billing/service";
 
 export const metadata: Metadata = { title: "Criar conta", description: "Sua página de agendamento com a cara da sua marca em minutos." };
@@ -34,6 +36,7 @@ async function signup(fd: FormData) {
       phone: str(fd, "phone") || null,
     });
     await createSession(user);
+    await sendVerificationEmail(user).catch((e) => console.error("[cadastro] e-mail de verificação", e));
     // Fotos opcionais já no cadastro: a IA sugere o tema na hora (pilar 1).
     const photos = fd.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
     if (photos.length && fd.get("rights") === "on") {
@@ -57,7 +60,7 @@ async function signup(fd: FormData) {
 
 export default async function SignupPage({ searchParams }: { searchParams: SearchParams }) {
   const { erro } = await flashParams(searchParams);
-  if (env().SELF_SIGNUP_ENABLED !== "true") redirect("/login");
+  if (env().SELF_SIGNUP_ENABLED !== "true" || !(await isEnabled("self_signup"))) redirect("/login");
   return (
     <main className="mx-auto max-w-lg px-4 py-12">
       <Link href="/" className="text-xl font-bold tracking-tight">Amser</Link>

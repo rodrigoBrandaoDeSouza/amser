@@ -6,6 +6,7 @@ import { Errors } from "./errors";
 import { addDays, isValidDate, localDate, zonedToUtc } from "./time";
 import { upsertCustomer, type CustomerInput } from "./customers";
 import { createBooking, getAvailability } from "./scheduling/booking";
+import { isEnabled } from "./flags";
 
 /**
  * Lista de espera (Fase 2, pilar 2): quando um horário é liberado
@@ -49,7 +50,7 @@ export async function joinWaitlist(input: {
 }) {
   const { tenant } = input;
   const now = input.now ?? new Date();
-  if (!tenant.waitlistEnabled) throw Errors.policy("Lista de espera indisponível");
+  if (!tenant.waitlistEnabled || !(await isEnabled("waitlist", tenant.id))) throw Errors.policy("Lista de espera indisponível");
   if (!isValidDate(input.date)) throw Errors.validation("Data inválida");
   const today = localDate(now, tenant.timezone);
   if (input.date < today || input.date > addDays(today, tenant.maxHorizonDays)) throw Errors.validation("Data fora do período de agendamento");
@@ -81,7 +82,7 @@ export async function joinWaitlist(input: {
 /** Chamado quando um horário é liberado. Retorna quantas ofertas foram enviadas. */
 export async function offerFreedSlot(tenantId: string, professionalId: string, freedStart: Date, now = new Date()): Promise<number> {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  if (!tenant || !tenant.waitlistEnabled || tenant.status !== "active") return 0;
+  if (!tenant || !tenant.waitlistEnabled || tenant.status !== "active" || !(await isEnabled("waitlist", tenant.id))) return 0;
   if (freedStart <= now) return 0;
   const db = tenantDb(tenantId);
   const pro = await db.professional.findFirst({ where: { id: professionalId }, include: { unit: true, services: true } });

@@ -7,6 +7,7 @@ export async function GET() {
   const user = await currentUser();
   if (!user || user.role !== "owner" || !user.tenantId) return new Response("unauthorized", { status: 401 });
   const customers = await tenantDb(user.tenantId).customer.findMany({
+    where: { anonymizedAt: null },
     include: { appointments: { select: { status: true } } },
     orderBy: { createdAt: "asc" },
   });

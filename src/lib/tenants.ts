@@ -5,9 +5,10 @@ import { isValidSlug, slugify } from "./format";
 import { randomToken } from "./crypto";
 import { audit } from "./audit";
 import { hashPassword } from "./auth/password";
-import { MAX_UPLOAD_BYTES, sniffImage, storage } from "./storage";
+import { MAX_UPLOAD_BYTES, optimizeImage, sniffImage, storage } from "./storage";
 import { env } from "./env";
 import { startTrial } from "./billing/service";
+import { isEnabled } from "./flags";
 
 export const PREVIEW_DAYS = 14;
 
@@ -30,7 +31,7 @@ export async function selfSignup(input: {
   password: string;
   phone?: string | null;
 }) {
-  if (env().SELF_SIGNUP_ENABLED !== "true") throw Errors.policy("Cadastro indisponível no momento");
+  if (env().SELF_SIGNUP_ENABLED !== "true" || !(await isEnabled("self_signup"))) throw Errors.policy("Cadastro indisponível no momento");
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Errors.validation("E-mail inválido");
   if (input.password.length < 10) throw Errors.validation("A senha precisa ter ao menos 10 caracteres");
@@ -153,20 +154,26 @@ export async function uploadTenantImage(
   opts: { kind: "logo" | "photo"; rightsConfirmed: boolean; confirmedBy: string },
 ) {
   if (!opts.rightsConfirmed) throw Errors.validation("Confirme que o negócio enviou ou autorizou o uso das imagens");
-  if (file.size > MAX_UPLOAD_BYTES) throw Errors.validation("Imagem maior que 5 MB");
+  if (file.size > MAX_UPLOAD_BYTES) throw Errors.validation("Imagem maior que 8 MB");
   const sniffed = sniffImage(file.data);
   if (!sniffed) throw Errors.validation("Formato não suportado (use JPG, PNG ou WebP)");
   const db = tenantDb(tenantId);
   const count = await db.tenantMedia.count();
   if (count >= 20) throw Errors.validation("Limite de 20 imagens por empresa");
-  const key = await storage().put(tenantId, file.data, sniffed.ext);
+  let optimized;
+  try {
+    optimized = await optimizeImage(file.data, opts.kind);
+  } catch {
+    throw Errors.validation("Não foi possível ler esta imagem. Tente outro arquivo.");
+  }
+  const key = await storage().put(tenantId, optimized.data, optimized.ext, optimized.mime);
   return db.tenantMedia.create({
     data: {
       tenantId,
       storageKey: key,
       kind: opts.kind,
-      mimeType: sniffed.mime,
-      sizeBytes: file.size,
+      mimeType: optimized.mime,
+      sizeBytes: optimized.data.length,
       rightsConfirmed: true,
       rightsConfirmedBy: opts.confirmedBy,
     } satisfies Prisma.TenantMediaUncheckedCreateInput,

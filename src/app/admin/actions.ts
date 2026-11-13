@@ -151,3 +151,52 @@ export async function changePlanAction(tenantId: string, fd: FormData) {
     return "Plano alterado (vale a partir da próxima fatura)";
   });
 }
+
+// ---------------------------------------------------------------- suporte, exclusão e flags
+
+export async function enterSupportAction(tenantId: string) {
+  const admin = await requireSuperadmin();
+  let error: string | null = null;
+  try {
+    const { assertSupportAllowed } = await import("@/lib/ops");
+    await assertSupportAllowed(tenantId);
+  } catch (e) {
+    error = e instanceof AppError ? e.message : "Erro";
+  }
+  if (error) redirect(`/admin/empresas/${tenantId}?erro=${encodeURIComponent(error)}`);
+  const { createSession } = await import("@/lib/auth/session");
+  await createSession(admin, { supportTenantId: tenantId });
+  await audit({ tenantId, actorId: admin.id, action: "support.enter", resource: `tenant:${tenantId}` });
+  redirect("/painel");
+}
+
+export async function scheduleDeletionAction(tenantId: string) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { scheduleDeletion } = await import("@/lib/ops");
+    const at = await scheduleDeletion(tenantId, admin.id);
+    return `Exclusão programada para ${at.toLocaleDateString("pt-BR")}. A página foi suspensa.`;
+  });
+}
+
+export async function cancelDeletionAction(tenantId: string) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { cancelDeletion } = await import("@/lib/ops");
+    await cancelDeletion(tenantId, admin.id);
+    return "Exclusão cancelada";
+  });
+}
+
+export async function setFlagAction(key: string, scope: string, value: "on" | "off" | "default") {
+  const admin = await requireSuperadmin();
+  const back = scope === "global" ? "/admin/flags" : `/admin/empresas/${scope}`;
+  await runAction(back, async () => {
+    const { FLAGS, setFlag } = await import("@/lib/flags");
+    if (!(key in FLAGS)) throw Errors.validation("Flag desconhecida");
+    if (scope !== "global" && !(await prisma.tenant.findUnique({ where: { id: scope } }))) throw Errors.notFound("Empresa");
+    await setFlag(key as keyof typeof FLAGS, value === "default" ? null : value === "on", scope);
+    await audit({ tenantId: scope === "global" ? null : scope, actorId: admin.id, action: "flag.set", resource: `flag:${key}`, meta: { scope, value } });
+    return "Flag atualizada";
+  });
+}

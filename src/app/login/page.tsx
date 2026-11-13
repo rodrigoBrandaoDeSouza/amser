@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
-import { createSession, currentUser, destroySession, hashPassword, verifyPassword } from "@/lib/auth/session";
+import { createSession, currentUser, destroySession, hashPassword, setPendingMfa, verifyPassword } from "@/lib/auth/session";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
 import { Button, Field, Flash, Input } from "@/components/ui";
@@ -26,6 +26,11 @@ async function login(fd: FormData) {
   const ok = await verifyPassword(password, user?.passwordHash ?? (await getDummyHash()));
   if (!user || !ok || user.status !== "active") {
     redirect("/login?erro=" + encodeURIComponent("E-mail ou senha inválidos"));
+  }
+  if (user.mfaEnabledAt) {
+    // 2º passo: código do app autenticador.
+    await setPendingMfa(user.id);
+    redirect("/login/codigo");
   }
   await createSession(user);
   await audit({ tenantId: user.tenantId, actorId: user.id, action: "auth.login", resource: `user:${user.id}` });
@@ -65,6 +70,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             <Input name="password" type="password" autoComplete="current-password" required />
           </Field>
           <Button type="submit" className="w-full">Entrar</Button>
+          <div className="flex justify-between text-sm">
+            <a href="/esqueci-senha" className="text-zinc-600 hover:underline">Esqueci a senha</a>
+            <a href="/cadastro" className="text-zinc-600 hover:underline">Criar conta</a>
+          </div>
         </form>
       )}
     </main>

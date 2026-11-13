@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireTenantUser } from "@/lib/auth/session";
 import { instagramProvider } from "@/lib/instagram/provider";
+import { isEnabled } from "@/lib/flags";
 import { Badge, Button, Card, Field, Flash, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
@@ -18,6 +19,7 @@ export default async function BrandPage({ searchParams }: { searchParams: Search
   const parsed = current ? ThemeSchema.safeParse(current.themeJson) : null;
   const theme = parsed?.success ? parsed.data : defaultTheme(tenant.name);
   const device = get("device") === "desktop" ? "desktop" : "mobile";
+  const igFlag = await isEnabled("instagram_import", tenant.id);
 
   return (
     <>
@@ -51,7 +53,7 @@ export default async function BrandPage({ searchParams }: { searchParams: Search
               </label>
               <SubmitButton variant="secondary" pendingText="Enviando…">Enviar imagens</SubmitButton>
             </form>
-            {instagramProvider() && (
+            {instagramProvider() && igFlag && (
               <p className="mt-3 text-sm">
                 Ou <Link href="/painel/marca/instagram" className="font-medium underline">importe fotos do seu Instagram</Link>.
               </p>

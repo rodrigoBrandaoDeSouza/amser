@@ -13,6 +13,7 @@ export function PublicPage({
   mode,
   logoMediaId,
   units = [],
+  features = { waitlist: true, coupons: true },
 }: {
   tenant: Tenant;
   theme: Theme;
@@ -21,6 +22,7 @@ export function PublicPage({
   mode: "live" | "preview";
   logoMediaId?: string | null;
   units?: PublicUnit[];
+  features?: { waitlist: boolean; coupons: boolean };
 }) {
   const hero = theme.heroMediaId;
   const alt = (id: string) => theme.accessibility.altTexts[id] ?? `Foto de ${tenant.name}`;
@@ -76,7 +78,8 @@ export function PublicPage({
             timeZone={tenant.timezone}
             cardStyle={theme.elements.cardStyle}
             units={units}
-            waitlistEnabled={tenant.waitlistEnabled && mode === "live"}
+            waitlistEnabled={tenant.waitlistEnabled && features.waitlist && mode === "live"}
+            couponsEnabled={features.coupons}
           />
         </section>
 

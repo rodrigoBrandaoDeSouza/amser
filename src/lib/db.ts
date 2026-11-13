@@ -141,6 +141,17 @@ export function isTransientTxError(err: unknown): boolean {
   return /40P01|deadlock detected|40001|could not serialize|55P03/.test(msg);
 }
 
+/**
+ * Serializa as escritas de agenda de UM profissional dentro da transação.
+ * Sem isso, duas inserções concorrentes no mesmo intervalo entram em deadlock
+ * na exclusion constraint (cada uma insere e depois espera a outra) e o
+ * Postgres só resolve após deadlock_timeout (1 s) — sob pico, dezenas de
+ * segundos. Com o lock, a segunda espera milissegundos e já vê o conflito.
+ */
+export async function lockProfessionalSchedule(tx: Prisma.TransactionClient, professionalId: string) {
+  await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtextextended(${professionalId}, 0))) AS l`;
+}
+
 /** Opções das transações curtas de agenda (a constraint pode esperar a outra transação terminar). */
 export const BOOKING_TX = { maxWait: 10_000, timeout: 15_000 } as const;
 

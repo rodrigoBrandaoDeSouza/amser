@@ -23,6 +23,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <Link href="/admin" className="hover:underline">Empresas</Link>
             <Link href="/admin/prospects/novo" className="hover:underline">Nova prévia</Link>
             <Link href="/admin/empresas/nova" className="hover:underline">Nova empresa</Link>
+            <Link href="/admin/flags" className="hover:underline">Flags</Link>
+            <Link href="/conta" className="hover:underline">Minha conta</Link>
           </nav>
           <form action={logout} className="ml-auto flex items-center gap-3 text-sm text-zinc-600">
             <span className="hidden sm:inline">{user.email}</span>

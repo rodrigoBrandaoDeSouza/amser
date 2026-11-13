@@ -7,6 +7,8 @@ import { processRefund } from "../scheduling/deposit-policy";
 import { expireWaitlistEntries } from "../waitlist";
 import { runBillingCycle } from "../billing/service";
 import { refreshInstagramTokens } from "../instagram/service";
+import { applyRetention } from "../crm";
+import { purgeScheduledDeletions } from "../ops";
 
 /** Expira reservas provisórias (Pix não pago), devolve crédito/cupom e oferece o horário à lista de espera. */
 export async function expireHolds(now = new Date()) {
@@ -97,5 +99,8 @@ export async function runAllJobs(now = new Date()) {
   const billing = await runBillingCycle(now);
   const instagram = await refreshInstagramTokens(now);
   const prospects = await purgeExpiredProspects(now);
-  return { holds, released, outbox, refunds, waitlist, billing, instagram, prospects };
+  const deletions = await purgeScheduledDeletions(now);
+  // Retenção LGPD: uma janela diária (06:00–06:10 UTC); idempotente se rodar mais de uma vez.
+  const retention = now.getUTCHours() === 6 && now.getUTCMinutes() < 10 ? await applyRetention(now) : 0;
+  return { holds, released, outbox, refunds, waitlist, billing, instagram, prospects, deletions, retention };
 }

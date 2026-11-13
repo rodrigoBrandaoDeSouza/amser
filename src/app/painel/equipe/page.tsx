@@ -3,6 +3,8 @@ import { Badge, Card, Field, Flash, Input, PageHeader, Select } from "@/componen
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { saveProfessionalAction, createStaffLoginAction } from "../actions";
+import { saveStaffPermissionsAction } from "../actions-completo";
+import { STAFF_PERMISSIONS, staffPermissions } from "@/lib/auth/permissions";
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -11,7 +13,7 @@ export default async function TeamPage({ searchParams }: { searchParams: SearchP
   const { ok, erro } = await flashParams(searchParams);
   const [pros, units] = await Promise.all([
     db.professional.findMany({
-      include: { workingHours: { orderBy: [{ weekday: "asc" }, { startTime: "asc" }] }, user: { select: { email: true } } },
+      include: { workingHours: { orderBy: [{ weekday: "asc" }, { startTime: "asc" }] }, user: { select: { id: true, email: true, permissionsJson: true, status: true } } },
       orderBy: { displayName: "asc" },
     }),
     db.unit.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
@@ -70,7 +72,21 @@ export default async function TeamPage({ searchParams }: { searchParams: SearchP
             </form>
             <div className="mt-4 border-t border-zinc-100 pt-4 text-sm">
               {p.user ? (
-                <p className="text-zinc-600">Acesso ao painel: {p.user.email} (vê apenas a própria agenda)</p>
+                <form action={saveStaffPermissionsAction.bind(null, p.user.id)} className="space-y-2">
+                  <p className="text-zinc-600">Acesso ao painel: <strong>{p.user.email}</strong></p>
+                  <fieldset className="grid gap-1 sm:grid-cols-2">
+                    <legend className="mb-1 text-xs font-medium uppercase text-zinc-500">Permissões</legend>
+                    {(Object.entries(STAFF_PERMISSIONS) as [keyof typeof STAFF_PERMISSIONS, string][]).map(([k, label]) => (
+                      <label key={k} className="flex items-center gap-2">
+                        <input type="checkbox" name={k} defaultChecked={staffPermissions(p.user!.permissionsJson)[k]} /> {label}
+                      </label>
+                    ))}
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" name="active" defaultChecked={p.user.status === "active"} /> Acesso ativo
+                    </label>
+                  </fieldset>
+                  <SubmitButton variant="secondary">Salvar permissões</SubmitButton>
+                </form>
               ) : (
                 <details>
                   <summary className="cursor-pointer text-zinc-700">Dar acesso ao painel para este profissional</summary>

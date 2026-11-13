@@ -7,7 +7,12 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { env } from "@/lib/env";
 import { ThemeSchema } from "@/lib/branding/theme";
+import { allFlags } from "@/lib/flags";
 import {
+  cancelDeletionAction,
+  enterSupportAction,
+  scheduleDeletionAction,
+  setFlagAction,
   changePlanAction,
   convertProspectAction,
   deleteProspectAction,
@@ -31,6 +36,7 @@ export default async function TenantDetail({ params, searchParams }: { params: P
     },
   });
   if (!tenant) notFound();
+  const tenantFlags = await allFlags(id);
   const [logs, sub, invoices, plans, domains] = await Promise.all([
     prisma.auditLog.findMany({ where: { tenantId: id }, orderBy: { createdAt: "desc" }, take: 15 }),
     prisma.subscription.findFirst({ where: { tenantId: id }, include: { plan: true }, orderBy: { periodEnd: "desc" } }),
@@ -147,6 +153,47 @@ export default async function TenantDetail({ params, searchParams }: { params: P
                 {tenant.status === "suspended" && <form action={setTenantStatusAction.bind(null, id, "onboarding")}><Button variant="secondary" type="submit">Voltar p/ onboarding</Button></form>}
               </div>
               <a href={publicUrl} target="_blank" className="mt-3 block break-all text-sm text-blue-700 underline">{publicUrl}</a>
+            </Card>
+          )}
+          {!isProspect && (
+            <Card title="Suporte e exclusão">
+              <div className="space-y-3 text-sm">
+                {tenant.supportAccessUntil && tenant.supportAccessUntil > new Date() ? (
+                  <form action={enterSupportAction.bind(null, id)}>
+                    <p className="mb-2 text-zinc-600">Dono autorizou acesso até {tenant.supportAccessUntil.toLocaleString("pt-BR")}.</p>
+                    <Button type="submit">Entrar no painel (modo suporte)</Button>
+                  </form>
+                ) : (
+                  <p className="text-zinc-600">Acesso de suporte não autorizado. O dono libera em Configurações → Acesso de suporte.</p>
+                )}
+                <div className="border-t border-zinc-100 pt-3">
+                  {tenant.deletionScheduledAt ? (
+                    <form action={cancelDeletionAction.bind(null, id)}>
+                      <p className="mb-2 text-red-700">Exclusão definitiva em {tenant.deletionScheduledAt.toLocaleDateString("pt-BR")}.</p>
+                      <Button variant="secondary" type="submit">Cancelar exclusão</Button>
+                    </form>
+                  ) : (
+                    <form action={scheduleDeletionAction.bind(null, id)}>
+                      <p className="mb-2 text-zinc-600">Suspende agora e apaga tudo (dados e fotos) em 30 dias.</p>
+                      <Button variant="danger" type="submit">Programar exclusão</Button>
+                    </form>
+                  )}
+                </div>
+                <div className="border-t border-zinc-100 pt-3">
+                  <p className="mb-2 font-medium">Flags desta empresa</p>
+                  <ul className="space-y-1">
+                    {tenantFlags.map((f) => (
+                      <li key={f.key} className="flex items-center gap-2">
+                        <span className="flex-1">{f.label}</span>
+                        <span className="text-xs text-zinc-500">{f.enabled === null ? "global" : f.enabled ? "ligado" : "desligado"}</span>
+                        <form action={setFlagAction.bind(null, f.key, id, f.enabled === false ? "default" : "off")}>
+                          <button className="text-xs underline">{f.enabled === false ? "usar global" : "desligar aqui"}</button>
+                        </form>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </Card>
           )}
           {!isProspect && (
