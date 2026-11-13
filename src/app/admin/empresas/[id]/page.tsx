@@ -9,6 +9,9 @@ import { env } from "@/lib/env";
 import { ThemeSchema } from "@/lib/branding/theme";
 import { allFlags } from "@/lib/flags";
 import {
+  adminConnectWhatsappAction,
+  adminProvisionTemplatesAction,
+  adminSyncTemplatesAction,
   cancelDeletionAction,
   enterSupportAction,
   scheduleDeletionAction,
@@ -37,6 +40,11 @@ export default async function TenantDetail({ params, searchParams }: { params: P
   });
   if (!tenant) notFound();
   const tenantFlags = await allFlags(id);
+  const [waConn, waTemplates] = await Promise.all([
+    prisma.whatsappConnection.findUnique({ where: { tenantId: id } }),
+    prisma.messageTemplate.findMany({ where: { tenantId: id } }),
+  ]);
+  const approved = waTemplates.filter((t) => t.status === "APPROVED").length;
   const [logs, sub, invoices, plans, domains] = await Promise.all([
     prisma.auditLog.findMany({ where: { tenantId: id }, orderBy: { createdAt: "desc" }, take: 15 }),
     prisma.subscription.findFirst({ where: { tenantId: id }, include: { plan: true }, orderBy: { periodEnd: "desc" } }),
@@ -226,6 +234,32 @@ export default async function TenantDetail({ params, searchParams }: { params: P
                   <p className="mt-1">Domínio verificado precisa ser adicionado ao serviço no Railway para emitir o HTTPS.</p>
                 </div>
               )}
+            </Card>
+          )}
+          {!isProspect && (
+            <Card
+              title="WhatsApp da empresa"
+              actions={<Badge tone={waConn?.status === "connected" ? "green" : waConn?.status === "error" ? "red" : "amber"}>{waConn?.status === "connected" ? "conectado" : waConn?.status === "error" ? "erro" : "não conectado"}</Badge>}
+            >
+              {waConn?.status === "connected" && (
+                <p className="mb-2 text-sm">
+                  {waConn.verifiedName} · {waConn.displayPhone} · qualidade {waConn.qualityRating ?? "—"}
+                </p>
+              )}
+              {waConn?.lastError && <p className="mb-2 text-xs text-red-700">{waConn.lastError}</p>}
+              <form action={adminConnectWhatsappAction.bind(null, id)} className="space-y-2">
+                <Field label="Phone Number ID"><Input name="phoneNumberId" defaultValue={waConn?.phoneNumberId ?? ""} inputMode="numeric" required /></Field>
+                <Field label="WABA ID"><Input name="wabaId" defaultValue={waConn?.wabaId ?? ""} inputMode="numeric" required /></Field>
+                <Field label="Token permanente" hint={waConn?.encryptedCredentials ? "Já configurado; preencha só para trocar" : undefined}>
+                  <Input name="accessToken" type="password" autoComplete="off" required={!waConn?.encryptedCredentials} />
+                </Field>
+                <SubmitButton variant="secondary" pendingText="Validando…">Salvar e validar na Meta</SubmitButton>
+              </form>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 text-sm">
+                <span className="text-zinc-600">Templates: {approved}/7 aprovados</span>
+                <form action={adminProvisionTemplatesAction.bind(null, id)}><Button variant="secondary" type="submit" disabled={waConn?.status !== "connected"}>Criar na Meta</Button></form>
+                <form action={adminSyncTemplatesAction.bind(null, id)}><Button variant="ghost" type="submit" disabled={waConn?.status !== "connected"}>Atualizar</Button></form>
+              </div>
             </Card>
           )}
           <Card title="Números">

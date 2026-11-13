@@ -115,7 +115,6 @@ export async function savePoliciesAction(fd: FormData) {
         depositRefundMode: (str(fd, "depositRefundMode") === "credit" ? "credit" : "refund") as DepositRefundMode,
         lateCancelRetainPercent: pct("lateCancelRetainPercent", 100),
         noShowRetainPercent: pct("noShowRetainPercent", 100),
-        waitlistEnabled: fd.get("waitlistEnabled") === "on",
       },
     });
     await audit({ tenantId: tenant.id, actorId: user.id, action: "policies.update", resource: `tenant:${tenant.id}` });

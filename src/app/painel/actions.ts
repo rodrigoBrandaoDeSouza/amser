@@ -308,17 +308,13 @@ export async function restoreThemeAction(brandingId: string) {
 export async function saveWhatsappAction(fd: FormData) {
   const { user, tenant } = await requireTenantUser();
   await runAction("/painel/integracoes", async () => {
-    const ws = str(fd, "sendWindowStart") || "08:00";
-    const we = str(fd, "sendWindowEnd") || "21:00";
-    if (!isValidTime(ws) || !isValidTime(we) || ws >= we) throw Errors.validation("Janela de envio inválida");
     const { saveAndTestConnection } = await import("@/lib/whatsapp/service");
     // Token nunca volta para o navegador; só é substituído se um novo for enviado.
+    // A janela de envio é configurada em /painel/mensagens.
     const r = await saveAndTestConnection(tenant.id, user.id, {
       phoneNumberId: str(fd, "phoneNumberId"),
       wabaId: str(fd, "wabaId"),
       accessToken: str(fd, "accessToken") || null,
-      sendWindowStart: ws,
-      sendWindowEnd: we,
     });
     const name = r.info?.verifiedName ? ` (${r.info.verifiedName} · ${r.info.displayPhoneNumber})` : "";
     return r.subscribeWarning
@@ -352,21 +348,20 @@ export async function saveTemplatesAction(fd: FormData) {
   const { tenant, db } = await requireTenantUser();
   await runAction("/painel/integracoes", async () => {
     const events: MessageEvent[] = ["booking_confirmed", "payment_pending", "reminder", "presence_request", "rescheduled", "cancelled", "waitlist_offer"];
+    // Só o NOME do template (ligar/desligar fica em /painel/mensagens). Em branco = modelo padrão do Amser.
+    const { definitionFor } = await import("@/lib/whatsapp/templates");
     for (const ev of events) {
-      const name = str(fd, `tpl_${ev}`);
-      const enabled = fd.get(`on_${ev}`) === "on";
-      if (!name) {
-        await db.messageTemplate.deleteMany({ where: { eventType: ev } });
-        continue;
-      }
+      const name = str(fd, `tpl_${ev}`) || definitionFor(ev).name;
       if (!/^[a-z0-9_]{1,512}$/.test(name)) throw Errors.validation(`Nome de template inválido: ${name}`);
+      const current = await db.messageTemplate.findFirst({ where: { eventType: ev } });
+      if (current?.providerTemplateId === name) continue;
       await db.messageTemplate.upsert({
         where: { tenantId_eventType: { tenantId: tenant.id, eventType: ev } },
-        create: { tenantId: tenant.id, eventType: ev, providerTemplateId: name, enabled },
-        update: { providerTemplateId: name, enabled },
+        create: { tenantId: tenant.id, eventType: ev, providerTemplateId: name },
+        update: { providerTemplateId: name, status: "UNKNOWN", metaTemplateId: null },
       });
     }
-    return "Templates salvos";
+    return "Nomes salvos. Clique em “Atualizar status” para conferir a aprovação na Meta.";
   });
 }
 
@@ -376,11 +371,7 @@ export async function saveSettingsAction(fd: FormData) {
   const { user, tenant } = await requireTenantUser();
   await runAction("/painel/configuracoes", async () => {
     const clamp = (k: string, min: number, max: number, def: number) => Math.min(max, Math.max(min, int(fd, k, def)));
-    const reminders = str(fd, "reminderHours")
-      .split(",")
-      .map((s) => Number.parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n) && n > 0 && n <= 168)
-      .slice(0, 3);
+    // Lembretes, presença e lista de espera ficam em /painel/mensagens (saveMessagesAction).
     await prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -393,10 +384,6 @@ export async function saveSettingsAction(fd: FormData) {
         maxHorizonDays: clamp("maxHorizonDays", 1, 365, 60),
         cancelLimitHours: clamp("cancelLimitHours", 0, 168, 24),
         holdMinutes: clamp("holdMinutes", 5, 120, 15),
-        presenceRequestHours: clamp("presenceRequestHours", 1, 168, 24),
-        presenceDeadlineHours: clamp("presenceDeadlineHours", 0, 72, 3),
-        autoReleaseUnconfirmed: fd.get("autoReleaseUnconfirmed") === "on",
-        reminderHours: reminders.length ? reminders : [2],
         slotStepMinutes: [5, 10, 15, 20, 30, 60].includes(int(fd, "slotStepMinutes")) ? int(fd, "slotStepMinutes") : 15,
         cancellationPolicyText: str(fd, "cancellationPolicyText").slice(0, 600) || null,
       },

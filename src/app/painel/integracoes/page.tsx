@@ -70,9 +70,10 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                 <Input name="accessToken" type="password" autoComplete="off" required={!conn?.encryptedCredentials} />
               </Field>
             </div>
-            <Field label="Lembretes a partir de"><Input type="time" name="sendWindowStart" defaultValue={conn?.sendWindowStart ?? "08:00"} /></Field>
-            <Field label="Até"><Input type="time" name="sendWindowEnd" defaultValue={conn?.sendWindowEnd ?? "21:00"} /></Field>
             <div className="sm:col-span-2"><SubmitButton pendingText="Validando na Meta…">Salvar e validar</SubmitButton></div>
+            <p className="text-xs text-zinc-500 sm:col-span-2">
+              Quais mensagens enviar e em que horário: <a href="/painel/mensagens" className="underline">Mensagens automáticas</a>.
+            </p>
           </form>
           <details className="mt-4 text-xs text-zinc-600">
             <summary className="cursor-pointer">Configuração do webhook (uma vez, no app da Meta)</summary>
@@ -114,12 +115,11 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
             <summary className="cursor-pointer text-zinc-700">Usar templates próprios (avançado)</summary>
             <form action={saveTemplatesAction} className="mt-3 space-y-2">
               {EVENTS.map(([ev, label]) => (
-                <div key={ev} className="grid grid-cols-[1fr_auto] items-end gap-2">
-                  <Field label={label}><Input name={`tpl_${ev}`} defaultValue={tpl(ev)?.providerTemplateId ?? ""} placeholder={DEFAULT_TEMPLATES.find((d) => d.event === ev)?.name} /></Field>
-                  <label className="flex items-center gap-1 pb-2 text-sm"><input type="checkbox" name={`on_${ev}`} defaultChecked={tpl(ev)?.enabled ?? true} /> ativo</label>
-                </div>
+                <Field key={ev} label={label}>
+                  <Input name={`tpl_${ev}`} defaultValue={tpl(ev)?.providerTemplateId ?? ""} placeholder={DEFAULT_TEMPLATES.find((d) => d.event === ev)?.name} />
+                </Field>
               ))}
-              <p className="text-xs text-zinc-500">Variáveis do corpo: {"{{1}}"} cliente, {"{{2}}"} serviço, {"{{3}}"} data/hora, {"{{4}}"} negócio. Botão URL (índice 0) com sufixo {"{{1}}"}.</p>
+              <p className="text-xs text-zinc-500">Em branco = modelo padrão do Amser. Variáveis do corpo: {"{{1}}"} cliente, {"{{2}}"} serviço, {"{{3}}"} data/hora, {"{{4}}"} negócio. Botão URL (índice 0) com sufixo {"{{1}}"}.</p>
               <SubmitButton variant="secondary">Salvar nomes</SubmitButton>
             </form>
           </details>

@@ -21,7 +21,7 @@ export function credentialsOf(conn: WhatsappConnection | null): Credentials {
 export async function saveAndTestConnection(
   tenantId: string,
   actorId: string,
-  input: { phoneNumberId: string; wabaId: string; accessToken?: string | null; sendWindowStart: string; sendWindowEnd: string },
+  input: { phoneNumberId: string; wabaId: string; accessToken?: string | null; sendWindowStart?: string; sendWindowEnd?: string },
 ) {
   const db = tenantDb(tenantId);
   const existing = await db.whatsappConnection.findFirst({});
@@ -64,8 +64,8 @@ export async function saveAndTestConnection(
     displayPhone: info?.displayPhoneNumber ?? existing?.displayPhone ?? null,
     verifiedName: info?.verifiedName ?? null,
     qualityRating: info?.qualityRating ?? null,
-    sendWindowStart: input.sendWindowStart,
-    sendWindowEnd: input.sendWindowEnd,
+    sendWindowStart: input.sendWindowStart ?? existing?.sendWindowStart ?? "08:00",
+    sendWindowEnd: input.sendWindowEnd ?? existing?.sendWindowEnd ?? "21:00",
     status,
     lastError,
     lastCheckedAt: new Date(),

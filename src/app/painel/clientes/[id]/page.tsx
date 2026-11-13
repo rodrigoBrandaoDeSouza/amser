@@ -7,7 +7,8 @@ import { formatBRL, maskPhone } from "@/lib/format";
 import { formatDateTime } from "@/lib/time";
 import { creditBalance } from "@/lib/scheduling/deposit-policy";
 import { prisma } from "@/lib/db";
-import { anonymizeCustomerAction, consentAction, updateCustomerAction } from "../../actions-completo";
+import { anonymizeCustomerAction, consentAction } from "../../actions-completo";
+import { updateCustomerFullAction } from "../../actions-mensagens";
 
 export default async function CustomerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const { db, tenant, user } = await requireTenantUser({ permission: "viewCustomers" });
@@ -61,8 +62,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             </ul>
           </Card>
           <Card title="Dados">
-            <form action={updateCustomerAction.bind(null, c.id)} className="grid gap-3 sm:grid-cols-2">
+            <form action={updateCustomerFullAction.bind(null, c.id)} className="grid gap-3 sm:grid-cols-2">
               <Field label="Nome"><Input name="name" defaultValue={c.name} required /></Field>
+              <Field label="WhatsApp" hint="Se mudar, as próximas mensagens vão para o número novo">
+                <Input name="phone" inputMode="tel" defaultValue={maskPhone(c.phoneE164)} required />
+              </Field>
               <Field label="E-mail"><Input name="email" type="email" defaultValue={c.email ?? ""} /></Field>
               <div className="sm:col-span-2"><Field label="Etiquetas" hint="Separadas por vírgula, ex.: vip, alongamento"><Input name="tags" defaultValue={c.tags.join(", ")} /></Field></div>
               <div className="sm:col-span-2"><Field label="Observações" hint="Preferências e cuidados. Não registre dados de saúde."><Textarea name="notes" rows={3} defaultValue={c.notes ?? ""} maxLength={1000} /></Field></div>

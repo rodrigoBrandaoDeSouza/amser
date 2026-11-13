@@ -200,3 +200,37 @@ export async function setFlagAction(key: string, scope: string, value: "on" | "o
     return "Flag atualizada";
   });
 }
+
+// ---------------------------------------------------------------- WhatsApp no onboarding (feito pela equipe)
+
+export async function adminConnectWhatsappAction(tenantId: string, fd: FormData) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { saveAndTestConnection } = await import("@/lib/whatsapp/service");
+    const r = await saveAndTestConnection(tenantId, admin.id, {
+      phoneNumberId: str(fd, "phoneNumberId"),
+      wabaId: str(fd, "wabaId"),
+      accessToken: str(fd, "accessToken") || null,
+    });
+    const name = r.info?.verifiedName ? ` (${r.info.verifiedName} · ${r.info.displayPhoneNumber})` : "";
+    return r.subscribeWarning ? `Número validado${name}; aviso ao inscrever o app: ${r.subscribeWarning}` : `WhatsApp conectado${name}`;
+  });
+}
+
+export async function adminProvisionTemplatesAction(tenantId: string) {
+  const admin = await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { provisionTemplates } = await import("@/lib/whatsapp/service");
+    const r = await provisionTemplates(tenantId, admin.id);
+    const errors = r.filter((x) => x.error);
+    return errors.length ? `${r.length - errors.length} enviados; ${errors.length} com erro: ${errors.map((e) => e.name).join(", ")}` : `${r.length} templates enviados para análise da Meta`;
+  });
+}
+
+export async function adminSyncTemplatesAction(tenantId: string) {
+  await requireSuperadmin();
+  await runAction(`/admin/empresas/${tenantId}`, async () => {
+    const { syncTemplates } = await import("@/lib/whatsapp/service");
+    return `Status de ${await syncTemplates(tenantId)} template(s) atualizado`;
+  });
+}

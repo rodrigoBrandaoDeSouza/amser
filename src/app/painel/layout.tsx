@@ -24,6 +24,7 @@ const OWNER_NAV = [
   ["/painel/cupons", "Cupons"],
   ["/painel/marca", "Marca"],
   ["/painel/unidades", "Unidades"],
+  ["/painel/mensagens", "Mensagens"],
   ["/painel/integracoes", "Integrações"],
   ["/painel/configuracoes", "Configurações"],
   ["/painel/plano", "Plano"],
@@ -79,7 +80,7 @@ export default async function PainelLayout({ children }: { children: React.React
             </form>
           </div>
         </div>
-        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-2 pb-2 text-sm">
+        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-2 pb-2 text-sm lg:flex-wrap lg:overflow-visible">
           {nav.map(([href, label]) => (
             <Link key={href} href={href} className="shrink-0 rounded-md px-2.5 py-1.5 text-zinc-700 hover:bg-zinc-100">
               {label}

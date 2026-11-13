@@ -71,3 +71,9 @@ Máquina de desenvolvimento Windows, Next numa instância e Postgres no Docker D
 | Reserva (disputa pelos mesmos horários) | 199 | 1070 ms | 2509 ms | 4204 ms |
 
 82 req/s, **0 sobreposições, 0 erros 5xx**; 186 tentativas recusadas corretamente com 409 (horário já ocupado). A latência reflete o ambiente local e a carga sem pausa. Repetir no Railway antes do lançamento.
+
+## Ajustes de usabilidade (13/11/2026)
+
+- **Mensagens automáticas** (`/painel/mensagens`): um lugar só para ligar e desligar cada mensagem, com prévia no estilo do WhatsApp, status na Meta, horários dos lembretes e da confirmação de presença, janela de envio e lista de espera. Desligar cancela também as mensagens que já estavam na fila. Essas opções saíram de Configurações e de Integrações.
+- **Superadmin**: na ficha da empresa, conecta o WhatsApp (validação na Meta) e cria e sincroniza os templates. Serve para o onboarding feito pela equipe.
+- **Clientes**: botão "Novo cliente" (cadastro avulso com registro de consentimento) e troca de telefone na ficha. A troca é recusada se o número for de outro cliente; as mensagens na fila passam para o número novo.

@@ -40,7 +40,7 @@ export default async function WaitlistPage({ searchParams }: { searchParams: Sea
           tenant.waitlistEnabled ? (
             <>Quando um horário é liberado (cancelamento, Pix não pago, falta de confirmação), avisamos os primeiros da fila pelo WhatsApp. {booked30} reserva(s) vieram da lista nos últimos 30 dias.</>
           ) : (
-            <>A lista de espera está desligada. <Link href="/painel/configuracoes" className="underline">Ativar em Configurações</Link>.</>
+            <>A lista de espera está desligada. <Link href="/painel/mensagens" className="underline">Ativar em Mensagens automáticas</Link>.</>
           )
         }
       />

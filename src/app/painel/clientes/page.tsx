@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { requireTenantUser } from "@/lib/auth/session";
-import { Badge, Button, Card, Flash, Input, LinkButton, PageHeader } from "@/components/ui";
+import { Badge, Button, Card, Field, Flash, Input, LinkButton, PageHeader, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { maskPhone, normalizePhoneBR } from "@/lib/format";
 import { importCustomersAction } from "../actions-completo";
+import { createCustomerAction } from "../actions-mensagens";
 
 export default async function CustomersPage({ searchParams }: { searchParams: SearchParams }) {
   const { db, user } = await requireTenantUser({ permission: "viewCustomers" });
@@ -33,9 +34,29 @@ export default async function CustomersPage({ searchParams }: { searchParams: Se
       <PageHeader
         title="Clientes"
         subtitle="Sua base é sua: importe, organize com etiquetas e exporte quando quiser."
-        actions={isOwner ? <LinkButton href="/api/painel/clientes/export" prefetch={false}>Exportar CSV</LinkButton> : undefined}
+        actions={
+          <div className="flex gap-2">
+            <LinkButton href="#novo-cliente" variant="primary">Novo cliente</LinkButton>
+            {isOwner && <LinkButton href="/api/painel/clientes/export" prefetch={false}>Exportar CSV</LinkButton>}
+          </div>
+        }
       />
       <Flash ok={ok} erro={erro} />
+      <details id="novo-cliente" className="mb-6 rounded-xl border border-zinc-200 bg-white p-4 target:ring-2 target:ring-zinc-900" open={!!erro}>
+        <summary className="cursor-pointer text-sm font-semibold">Cadastrar cliente</summary>
+        <form action={createCustomerAction} className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Field label="Nome"><Input name="name" required minLength={2} maxLength={120} /></Field>
+          <Field label="WhatsApp (com DDD)"><Input name="phone" inputMode="tel" placeholder="(11) 98888-7777" required /></Field>
+          <Field label="E-mail (opcional)"><Input name="email" type="email" /></Field>
+          <Field label="Etiquetas (opcional)" hint="Separadas por vírgula"><Input name="tags" /></Field>
+          <div className="sm:col-span-2"><Field label="Observações (opcional)"><Textarea name="notes" rows={2} maxLength={1000} /></Field></div>
+          <label className="flex items-start gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" name="consent" className="mt-0.5" />
+            <span>O cliente autorizou receber mensagens do WhatsApp (confirmações e lembretes). Só marque se ele pediu ou concordou.</span>
+          </label>
+          <div className="sm:col-span-2"><SubmitButton>Cadastrar</SubmitButton></div>
+        </form>
+      </details>
       <form className="mb-4 flex max-w-xl flex-wrap gap-2">
         <Input name="q" defaultValue={q} placeholder="Buscar por nome ou telefone" className="min-w-0 flex-1" />
         {tag && <input type="hidden" name="etiqueta" value={tag} />}

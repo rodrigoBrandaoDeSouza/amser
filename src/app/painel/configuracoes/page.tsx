@@ -45,17 +45,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
           </div>
         </Card>
 
-        <Card title="Sinal e faltas">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Reserva aguarda o Pix por (min)"><Input type="number" name="holdMinutes" min={5} max={120} defaultValue={t.holdMinutes} /></Field>
-            <Field label="Lembretes (horas antes)" hint="Separe por vírgula, ex.: 24, 2"><Input name="reminderHours" defaultValue={t.reminderHours.join(", ")} /></Field>
-            <Field label="Pedir confirmação de presença (h antes)"><Input type="number" name="presenceRequestHours" min={1} max={168} defaultValue={t.presenceRequestHours} /></Field>
-            <Field label="Prazo para confirmar (h antes)"><Input type="number" name="presenceDeadlineHours" min={0} max={72} defaultValue={t.presenceDeadlineHours} /></Field>
-          </div>
-          <label className="mt-3 flex items-start gap-2 text-sm">
-            <input type="checkbox" name="autoReleaseUnconfirmed" defaultChecked={t.autoReleaseUnconfirmed} className="mt-0.5" />
-            <span>Liberar automaticamente o horário de quem não confirmar presença no prazo (vale para agendamentos sem sinal).</span>
-          </label>
+        <Card title="Sinal via Pix">
+          <Field label="Reserva aguarda o Pix por (min)" hint="Depois disso, o horário é liberado">
+            <Input type="number" name="holdMinutes" min={5} max={120} defaultValue={t.holdMinutes} />
+          </Field>
+          <p className="mt-3 text-sm text-zinc-600">
+            Lembretes, confirmação de presença e lista de espera ficam em{" "}
+            <a href="/painel/mensagens" className="font-medium underline">Mensagens automáticas</a>.
+          </p>
         </Card>
 
         <Card title="Política de cancelamento">
@@ -81,10 +78,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
               <Field label="Cancelamento fora do prazo: reter (%)"><Input type="number" name="lateCancelRetainPercent" min={0} max={100} defaultValue={t.lateCancelRetainPercent} /></Field>
               <Field label="Falta: reter (%)"><Input type="number" name="noShowRetainPercent" min={0} max={100} defaultValue={t.noShowRetainPercent} /></Field>
             </div>
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" name="waitlistEnabled" defaultChecked={t.waitlistEnabled} className="mt-0.5" />
-              <span>Lista de espera: oferecer automaticamente pelo WhatsApp os horários que forem liberados.</span>
-            </label>
             <SubmitButton variant="secondary">Salvar política</SubmitButton>
           </form>
         </Card>

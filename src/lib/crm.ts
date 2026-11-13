@@ -124,21 +124,85 @@ export async function importCustomersCsv(tenantId: string, csv: string, actorId:
 
 // ---------------------------------------------------------------- edição
 
-export async function updateCustomer(tenantId: string, customerId: string, data: { name: string; email: string | null; notes: string | null; tags: string[] }) {
+const cleanTags = (tags: string[]) => [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+
+function validateBasics(data: { name: string; email: string | null }) {
+  if (data.name.trim().length < 2) throw Errors.validation("Nome obrigatório");
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) throw Errors.validation("E-mail inválido");
+}
+
+/**
+ * Edita o cliente. Trocar o telefone não pode duplicar cliente: se outro
+ * cliente da empresa já usa o número, a troca é recusada. Mensagens ainda na
+ * fila passam a ir para o número novo; o ID do WhatsApp (BSUID) do número
+ * antigo é descartado.
+ */
+export async function updateCustomer(
+  tenantId: string,
+  customerId: string,
+  data: { name: string; email: string | null; notes: string | null; tags: string[]; phone?: string },
+  actorId?: string,
+) {
   const db = tenantDb(tenantId);
   const c = await db.customer.findFirst({ where: { id: customerId } });
   if (!c || c.anonymizedAt) throw Errors.notFound("Cliente");
-  if (data.name.trim().length < 2) throw Errors.validation("Nome obrigatório");
-  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) throw Errors.validation("E-mail inválido");
-  return db.customer.update({
+  validateBasics(data);
+  let phone = c.phoneE164;
+  if (data.phone !== undefined && data.phone.trim()) {
+    const p = normalizePhoneBR(data.phone);
+    if (!p) throw Errors.validation("Telefone inválido. Use DDD + número.");
+    if (p !== c.phoneE164) {
+      const other = await db.customer.findFirst({ where: { phoneE164: p, id: { not: c.id } } });
+      if (other) throw Errors.validation(`Já existe um cliente com esse telefone (${other.name}).`);
+      phone = p;
+    }
+  }
+  const phoneChanged = phone !== c.phoneE164;
+  const updated = await db.customer.update({
     where: { id: c.id },
     data: {
       name: data.name.trim().slice(0, 120),
       email: data.email?.toLowerCase() || null,
       notes: data.notes?.slice(0, 1000) || null,
-      tags: [...new Set(data.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 20),
+      tags: cleanTags(data.tags),
+      ...(phoneChanged ? { phoneE164: phone, whatsappUserId: null } : {}),
     },
   });
+  if (phoneChanged) {
+    await db.messageOutbox.updateMany({ where: { toPhoneE164: c.phoneE164, status: "pending" }, data: { toPhoneE164: phone } });
+    await audit({ tenantId, actorId: actorId ?? null, action: "customer.phone_change", resource: `customer:${c.id}` });
+  }
+  return updated;
+}
+
+/** Cadastro avulso de cliente (recepção). Deduplica por telefone dentro da empresa. */
+export async function createCustomer(
+  tenantId: string,
+  data: { name: string; phone: string; email: string | null; notes: string | null; tags: string[]; consentWhatsapp: boolean },
+  actorId: string,
+) {
+  validateBasics(data);
+  const phone = normalizePhoneBR(data.phone);
+  if (!phone) throw Errors.validation("Telefone inválido. Use DDD + número.");
+  const db = tenantDb(tenantId);
+  const existing = await db.customer.findFirst({ where: { phoneE164: phone } });
+  if (existing) throw Errors.validation(`Esse telefone já é de ${existing.name}. Abra a ficha dele para editar.`);
+  const consent = (
+    data.consentWhatsapp ? { whatsapp: true, whatsappAt: new Date().toISOString(), source: "painel" } : { whatsapp: false, source: "painel" }
+  ) as Prisma.InputJsonValue;
+  const c = await db.customer.create({
+    data: {
+      tenantId,
+      name: data.name.trim().slice(0, 120),
+      phoneE164: phone,
+      email: data.email?.toLowerCase() || null,
+      notes: data.notes?.slice(0, 1000) || null,
+      tags: cleanTags(data.tags),
+      consentJson: consent,
+    },
+  });
+  await audit({ tenantId, actorId, action: "customer.create", resource: `customer:${c.id}` });
+  return c;
 }
 
 /** Revoga (ou reativa) o consentimento de WhatsApp pelo painel. */
