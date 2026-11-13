@@ -20,6 +20,15 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
   return true;
 }
 
+/**
+ * IP do cliente para rate limit. O X-Forwarded-For é uma lista em que o
+ * PRIMEIRO valor pode ser forjado pelo próprio cliente; o proxy confiável
+ * (Railway) acrescenta o IP real no FIM. Por isso usamos o valor que está
+ * TRUST_PROXY_HOPS posições a partir do fim (padrão 1).
+ */
 export function clientIp(headers: Headers): string {
-  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || headers.get("x-real-ip") || "local";
+  const hops = Math.max(1, Number(process.env.TRUST_PROXY_HOPS ?? 1) || 1);
+  const list = (headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length) return list[Math.max(0, list.length - hops)];
+  return headers.get("x-real-ip") || "local";
 }

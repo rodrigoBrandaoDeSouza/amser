@@ -55,7 +55,26 @@ Para usar o Claude na análise de marca: `BRANDING_AI_PROVIDER=anthropic` e `ANT
 ```bash
 npm test               # unitários + integração (cria o banco amser_test automaticamente)
 npm run lint           # checagem de tipos
+npm run build && npm run test:e2e   # navegador (Chromium, celular e desktop); precisa do seed
+npm run load-test -- --url http://localhost:3005 --clientes 50 --segundos 25   # "sábado de manhã"
 ```
+
+> Windows + Docker Desktop: use `127.0.0.1` (não `localhost`) no `DATABASE_URL`. Conexões via IPv6 podem travar no proxy de portas.
+
+## Docker (stack completa)
+
+```bash
+docker compose --profile app up --build   # Postgres + app (http://localhost:3010) + jobs
+```
+
+## Variáveis para produção (além do `.env.example`)
+
+| Recurso | Variáveis |
+|---|---|
+| WhatsApp oficial | `WHATSAPP_PROVIDER=meta`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`. Webhook: `{APP_URL}/api/integrations/whatsapp/webhook` (campos `messages` e `message_template_status_update`). Cada empresa conecta o próprio número no painel. |
+| Fotos (S3 ou R2) | `STORAGE_PROVIDER=s3`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` e, no R2, `S3_ENDPOINT=https://<conta>.r2.cloudflarestorage.com` |
+| E-mail | `EMAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` |
+| Proxy | `TRUST_PROXY_HOPS=1` (Railway). Define de onde vem o IP real para o rate limit. |
 
 Os testes de integração rodam contra Postgres real: concorrência de reservas, isolamento entre tenants, Pix (idempotência, expiração, pagamento tardio), remarcação atômica, outbox do WhatsApp e ciclo da prévia.
 

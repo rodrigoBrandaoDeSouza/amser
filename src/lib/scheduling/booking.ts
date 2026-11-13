@@ -98,29 +98,35 @@ export async function getAvailability(params: {
   const weekday = weekdayOf(date);
   const result = new Map<number, string[]>();
 
+  // Uma consulta de cada tipo para TODOS os profissionais (antes: 3 por profissional).
+  const ids = pros.map((p) => p.id);
+  const allBounds = pros.map((p) => dayBounds(date, p.unit.timezone));
+  const from = new Date(Math.min(...allBounds.map((b) => b.start.getTime())));
+  const to = new Date(Math.max(...allBounds.map((b) => b.end.getTime())));
+  const [allHours, allExceptions, allAppts] = await Promise.all([
+    db.workingHour.findMany({ where: { professionalId: { in: ids }, weekday } }),
+    db.scheduleException.findMany({
+      where: { OR: [{ professionalId: { in: ids } }, { professionalId: null }], startsAt: { lt: to }, endsAt: { gt: from } },
+    }),
+    db.appointment.findMany({
+      where: {
+        professionalId: { in: ids },
+        status: { in: ACTIVE_STATUSES },
+        startsAt: { lt: to },
+        blockEndsAt: { gt: from },
+        ...(params.excludeAppointmentId ? { id: { not: params.excludeAppointmentId } } : {}),
+      },
+      select: { professionalId: true, startsAt: true, blockEndsAt: true, status: true, holdExpiresAt: true },
+    }),
+  ]);
+
   for (const pro of pros) {
     const tz = pro.unit.timezone;
-    const bounds = dayBounds(date, tz);
-    const [hours, exceptions, appts] = await Promise.all([
-      db.workingHour.findMany({ where: { professionalId: pro.id, weekday } }),
-      db.scheduleException.findMany({
-        where: { OR: [{ professionalId: pro.id }, { professionalId: null }], startsAt: { lt: bounds.end }, endsAt: { gt: bounds.start } },
-      }),
-      db.appointment.findMany({
-        where: {
-          professionalId: pro.id,
-          status: { in: ACTIVE_STATUSES },
-          startsAt: { lt: bounds.end },
-          blockEndsAt: { gt: bounds.start },
-          ...(params.excludeAppointmentId ? { id: { not: params.excludeAppointmentId } } : {}),
-        },
-        select: { startsAt: true, blockEndsAt: true, status: true, holdExpiresAt: true },
-      }),
-    ]);
+    const hours = allHours.filter((h) => h.professionalId === pro.id);
     const busy: Interval[] = [
-      ...exceptions.map((e) => ({ start: e.startsAt, end: e.endsAt })),
-      ...appts
-        .filter((a) => a.status !== "aguardando_sinal" || (a.holdExpiresAt && a.holdExpiresAt > now))
+      ...allExceptions.filter((e) => !e.professionalId || e.professionalId === pro.id).map((e) => ({ start: e.startsAt, end: e.endsAt })),
+      ...allAppts
+        .filter((a) => a.professionalId === pro.id && (a.status !== "aguardando_sinal" || (a.holdExpiresAt && a.holdExpiresAt > now)))
         .map((a) => ({ start: a.startsAt, end: a.blockEndsAt })),
     ];
     const slots = computeSlots({

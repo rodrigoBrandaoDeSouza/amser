@@ -75,3 +75,13 @@ Status de entrega. Header `X-Hub-Signature-256` validado com `WHATSAPP_APP_SECRE
 | `POST /api/dev/simulate-billing` | **Somente dev**: paga a fatura aberta do tenant logado. |
 
 Páginas novas: `/cadastro` (self-service), `/w/{token}` (oferta da lista de espera), `/d/{host}` (domínio próprio, via middleware), `/painel/{unidades,cupons,lista-de-espera,plano,marca/instagram}`.
+
+## Completo (pós-Fase 2)
+
+| Rota | Uso |
+|---|---|
+| `POST /api/integrations/whatsapp/webhook` | Agora processa também mensagens recebidas (opt-out "SAIR", respostas rápidas "Confirmo presença"/"Preciso remarcar") e `message_template_status_update`. Idempotente por WAMID. |
+| `GET /api/painel/clientes/{id}/dados` | Portabilidade LGPD: dados do cliente em JSON (dono ou modo suporte). |
+| `GET /api/painel/relatorios/csv?de=&ate=` | Agendamentos do período em CSV (dono). |
+
+Páginas novas: `/conta` (senha, MFA, e-mail), `/login/codigo` (2º passo do MFA), `/esqueci-senha`, `/redefinir-senha/{token}`, `/verificar-email/{token}`, `/painel/relatorios`, `/painel/clientes/{id}`, `/painel/agenda?visao=semana`, `/admin/flags`.

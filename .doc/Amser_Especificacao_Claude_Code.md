@@ -1,8 +1,22 @@
 # Amser — SaaS Multi-Tenant de Agendamentos com Identidade Visual por IA
-**Especificação funcional e técnica — versão 1.2**  
+**Especificação funcional e técnica — versão 1.3**  
 **Objetivo:** documento de implementação para Claude Code.  
 **Mudanças da v1.1:** posicionamento e diferencial (§2), entrega faseada (§3), sinal via Pix no MVP (§9), prévia para prospect (§4.1), métricas de faltas (§11), WhatsApp incluído no plano (§10) e critérios de aceite revisados (§20). Base: [analise-concorrencia.md](analise-concorrencia.md).  
-**Mudanças da v1.2:** Fase 2 implementada (§3), com o detalhamento e as pendências externas na própria seção. Decisões técnicas em `docs/adr/0006`–`0010`.
+**Mudanças da v1.2:** Fase 2 implementada (§3), com o detalhamento e as pendências externas na própria seção. Decisões técnicas em `docs/adr/0006`–`0010`.  
+**Mudanças da v1.3:**
+- **WhatsApp Cloud API oficial completa** (§11): conexão validada na Meta, templates padrão criados por API e sincronizados, respostas rápidas para confirmar presença e opt-out por "SAIR".
+- **Sinal só por Pix** por enquanto (sem cartão). PSP real a definir.
+- **Itens da spec que faltavam:**
+  - CRM com importação CSV e etiquetas (§10);
+  - LGPD: portabilidade, eliminação e retenção (§10, §17);
+  - agenda semanal e relatórios (§12);
+  - permissões da equipe (§4);
+  - acesso de suporte, exclusão programada e feature flags (§13);
+  - MFA e redefinição de senha (§17);
+  - storage S3/R2 (§15);
+  - Docker Compose com a aplicação (§18.6);
+  - teste de carga (§17).
+- Status e pendências em `docs/tasks.md`; decisões em `docs/adr/0011`–`0014`.
 
 ## 1. Visão do produto
 Criar uma plataforma SaaS white-label de agendamentos para profissionais autônomos e empresas de serviços com hora marcada: barbearias, salões de beleza, nail designers, designers de sobrancelhas, estúdios de estética, massagistas e outros segmentos configuráveis.

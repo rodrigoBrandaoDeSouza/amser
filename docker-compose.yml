@@ -1,3 +1,5 @@
+# Dev:      docker compose up -d                 → só o Postgres (localhost:5433)
+# Completo: docker compose --profile app up --build → Postgres + app (localhost:3010) + jobs
 services:
   db:
     image: postgres:16-alpine
@@ -13,5 +15,38 @@ services:
       test: ["CMD-SHELL", "pg_isready -U amser"]
       interval: 3s
       retries: 20
+
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://amser:amser@db:5432/amser
+      APP_URL: http://localhost:3010
+      STORAGE_LOCAL_DIR: /data/uploads
+    ports:
+      - "3010:3000"
+    volumes:
+      - amser_uploads:/data/uploads
+
+  jobs:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://amser:amser@db:5432/amser
+      APP_URL: http://localhost:3010
+      STORAGE_LOCAL_DIR: /data/uploads
+    volumes:
+      - amser_uploads:/data/uploads
+    command: ["npx", "tsx", "scripts/run-jobs.ts", "--loop"]
+
 volumes:
   amser_pg:
+  amser_uploads:

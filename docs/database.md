@@ -80,3 +80,17 @@ ALTER TABLE appointments ADD CONSTRAINT appointments_valid_range
 | `tenant_domains` | `hostname` único global; `verified_at` após o TXT. |
 | `instagram_connections` | Uma por tenant; token criptografado; `token_expires_at` (60 dias). |
 | `MessageEvent.waitlist_offer` | Novo evento do outbox. |
+
+## Completo (migration `completo`)
+
+| Tabela / campo | Notas |
+|---|---|
+| `whatsapp_connections.waba_id`, `verified_name`, `quality_rating`, `last_checked_at`, `last_error` | Conexão validada na Meta. |
+| `message_templates.status`, `category`, `rejected_reason`, `meta_template_id`, `last_synced_at` | Só `APPROVED` é enviado. |
+| `customers.whatsapp_user_id` (BSUID), `opted_out_at`, `anonymized_at` | Opt-out e LGPD. Anonimizado: telefone vira `anon:<id>`. |
+| `users.email_verified_at`, `mfa_secret_encrypted`, `mfa_enabled_at`, `permissions_json`, `sessions_valid_after` | Conta, MFA, permissões da equipe. |
+| `tenants.retention_months`, `deletion_scheduled_at`, `support_access_until` | LGPD e operação. |
+| `auth_tokens` | Tokens de e-mail de uso único (só o hash). |
+| `feature_flags` | `(key, scope)` único; scope = `global` ou id do tenant. |
+
+**Concorrência:** além da exclusion constraint, toda escrita de agenda pega `pg_advisory_xact_lock(hashtextextended(professional_id, 0))` (ADR 0012).

@@ -8,3 +8,5 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 .uploads-test/
+test-results/
+playwright-report/

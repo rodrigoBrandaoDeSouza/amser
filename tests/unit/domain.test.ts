@@ -82,3 +82,12 @@ describe("segredos", () => {
     expect(await verifyActionToken(expired)).toBeNull();
   });
 });
+
+describe("IP do cliente (rate limit)", () => {
+  it("usa o IP acrescentado pelo proxy, não o forjado pelo cliente", async () => {
+    const { clientIp } = await import("@/lib/rate-limit");
+    expect(clientIp(new Headers({ "x-forwarded-for": "6.6.6.6, 200.10.20.30" }))).toBe("200.10.20.30");
+    expect(clientIp(new Headers({ "x-forwarded-for": "200.10.20.30" }))).toBe("200.10.20.30");
+    expect(clientIp(new Headers())).toBe("local");
+  });
+});

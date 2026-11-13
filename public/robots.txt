@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /painel
+Disallow: /admin
+Disallow: /a/
+Disallow: /w/
+Disallow: /preview/
+Disallow: /api/
