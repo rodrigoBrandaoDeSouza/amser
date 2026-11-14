@@ -49,6 +49,26 @@ Se faltar algo, o servidor **não sobe** e mostra no log exatamente o que está 
    3. **Criar na Meta**: cria os 7 modelos do Amser. A aprovação leva de minutos a horas. Enquanto estiverem em análise, as mensagens ficam na fila e saem quando forem aprovados.
    4. Em **Mensagens**, escolha quais mensagens enviar e os horários.
 
+### Cadastro integrado: o cliente conecta o próprio número (coexistência)
+
+Com isso configurado, o dono clica em **Integrações → Conectar meu WhatsApp**, entra com o Facebook do negócio e escolhe o número. Quem já usa o **app WhatsApp Business** pode escolher o mesmo número: ele continua funcionando no celular. A conta fica no portfólio do cliente, e a Meta cobra as mensagens no cartão dele. Detalhes técnicos: [ADR 0015](adr/0015-whatsapp-coexistencia.md).
+
+**Uma vez, para o Amser virar Tech Provider da Meta:**
+1. **Verifique a empresa** no Gerenciador de Negócios (Central de Segurança → Verificação da empresa). Precisa de CNPJ, documento e um domínio ou e-mail da empresa. A análise leva de dias a semanas.
+2. No app (tipo Business), em **WhatsApp → Início rápido**, siga o caminho de **Tech Provider**.
+3. Peça na **Análise do app (App Review)** o acesso avançado a `whatsapp_business_management` e `whatsapp_business_messaging`. Grave um vídeo mostrando o botão "Conectar meu WhatsApp" do painel, de ponta a ponta.
+4. Em **Login do Facebook para Empresas → Configurações**, crie uma configuração com a variação **WhatsApp Embedded Signup**. A Meta recomenda o modelo "WhatsApp Embedded Signup Configuration With 60 Expiration Token". Copie o **ID da configuração**.
+5. No mesmo app, em Login do Facebook → Configurações, adicione o domínio do Amser em **Domínios permitidos para o SDK JavaScript**. Sem isso, a janela não abre.
+6. No webhook do app, assine também os campos **`account_update`**, **`smb_message_echoes`**, **`history`** e **`smb_app_state_sync`**.
+7. Variáveis do servidor: `WHATSAPP_APP_ID` (ID do app) e `WHATSAPP_ES_CONFIG_ID` (ID da configuração).
+
+**Para o cliente:**
+- O app WhatsApp Business precisa estar atualizado (versão 2.24.17 ou superior). WhatsApp pessoal não serve: ele migra para o Business antes, de graça e mantendo as conversas.
+- Depois de conectar, ele cadastra uma **forma de pagamento** no Gerenciador do WhatsApp (business.facebook.com → WhatsApp → Pagamentos). As mensagens de lembrete são cobradas pela Meta.
+- Nesse número, listas de transmissão e mensagens temporárias deixam de funcionar. As conversas normais no celular continuam.
+- O Amser **não guarda** as conversas do app. Só envia as mensagens automáticas e entende "SAIR" e os botões dos lembretes.
+- Para desconectar: no app WhatsApp Business, remova o parceiro. O Amser percebe sozinho e para de enviar.
+
 Observações da Meta:
 - Só recebe mensagem quem autorizou (opt-in na reserva).
 - "SAIR" interrompe os envios para aquele cliente.

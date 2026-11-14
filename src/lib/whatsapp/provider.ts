@@ -8,6 +8,13 @@ import { hmacSha256Hex, safeEqual } from "../crypto";
  *  - número:      GET  /{phone-number-id}?fields=…
  *  - templates:   GET/POST /{waba-id}/message_templates
  *  - assinatura:  POST /{waba-id}/subscribed_apps (endpoint listado na doc; corpo não detalhado)
+ *
+ * Cadastro integrado (Embedded Signup v5) e coexistência — conferido em 2026-11-14 (ADR 0015):
+ *  - troca do código: GET /oauth/access_token?client_id&client_secret&code → token de negócio
+ *  - registro:        POST /{phone-number-id}/register {messaging_product, pin} (NÃO usar na coexistência)
+ *  - sincronização:   POST /{phone-number-id}/smb_app_data {messaging_product, sync_type}
+ *                     sync_type "smb_app_state_sync" (contatos) e "history"; uma vez cada, até 24h
+ *  - desconexão:      field "account_update" com event "PARTNER_REMOVED" (o dono desligou no app)
  *  - webhook:     X-Hub-Signature-256 = HMAC-SHA256(corpo, app secret); roteamento por
  *                 value.metadata.phone_number_id; status em value.statuses[]; mensagens em
  *                 value.messages[] (text / button / interactive); templates em
@@ -58,7 +65,10 @@ export type WebhookEvent =
       text: string;
       contextMessageId: string | null;
     }
-  | { kind: "template_status"; wabaId: string; templateId: string; name: string; language: string; status: string; reason: string | null };
+  | { kind: "template_status"; wabaId: string; templateId: string; name: string; language: string; status: string; reason: string | null }
+  | { kind: "partner_removed"; wabaId: string };
+
+export type SmbSyncType = "smb_app_state_sync" | "history";
 
 export interface WhatsappProvider {
   name: string;
@@ -70,6 +80,12 @@ export interface WhatsappProvider {
   listTemplates(c: Credentials): Promise<RemoteTemplate[]>;
   createTemplate(c: Credentials, payload: object): Promise<{ id: string; status: string }>;
   parseWebhook(rawBody: string, headers: Headers): WebhookEvent[];
+  /** Cadastro integrado: troca o código (vale 30 s) por um token de negócio. Só no servidor. */
+  exchangeCode(code: string): Promise<string>;
+  /** Registra o número na Cloud API (número novo; NÃO usar na coexistência). */
+  registerNumber(c: Credentials, pin: string): Promise<void>;
+  /** Coexistência: pede à Meta a sincronização do app WhatsApp Business. */
+  syncSmbAppData(c: Credentials, syncType: SmbSyncType): Promise<void>;
 }
 
 /** Erro da Meta classificado: retentável ou não, e se indica opt-out/bloqueio ou token inválido. */
@@ -194,6 +210,26 @@ export const metaWhatsappProvider: WhatsappProvider = {
     const j = await call(c, `${c.wabaId}/message_templates`, { method: "POST", body: JSON.stringify(payload) });
     return { id: String(j.id ?? ""), status: String(j.status ?? "PENDING") };
   },
+  async exchangeCode(code) {
+    const e = env();
+    if (!e.WHATSAPP_APP_ID || !e.WHATSAPP_APP_SECRET) throw new WhatsappSendError("cadastro integrado não configurado (WHATSAPP_APP_ID/WHATSAPP_APP_SECRET)", false);
+    const q = new URLSearchParams({ client_id: e.WHATSAPP_APP_ID, client_secret: e.WHATSAPP_APP_SECRET, code });
+    let res: Response;
+    try {
+      res = await fetch(graph(`oauth/access_token?${q}`), { signal: AbortSignal.timeout(15_000) });
+    } catch (err) {
+      throw new WhatsappSendError(`rede: ${err instanceof Error ? err.message : err}`, true);
+    }
+    const j = (await res.json().catch(() => ({}))) as { access_token?: string; error?: { code?: number; message?: string } };
+    if (!res.ok || !j.access_token) throw classifyMetaError(j.error?.code, `Meta ${res.status}: ${j.error?.message ?? "código inválido ou expirado"}`, res.status);
+    return j.access_token;
+  },
+  async registerNumber(c, pin) {
+    await call(c, `${c.phoneNumberId}/register`, { method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", pin }) });
+  },
+  async syncSmbAppData(c, syncType) {
+    await call(c, `${c.phoneNumberId}/smb_app_data`, { method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", sync_type: syncType }) });
+  },
   parseWebhook(rawBody, headers) {
     const secret = env().WHATSAPP_APP_SECRET;
     const sig = (headers.get("x-hub-signature-256") ?? "").replace(/^sha256=/, "");
@@ -222,6 +258,14 @@ export function parseMetaPayload(body: Json): WebhookEvent[] {
         });
         continue;
       }
+      if (change.field === "account_update") {
+        // O dono desconectou o Amser pelo app WhatsApp Business (coexistência).
+        if (value.event === "PARTNER_REMOVED") out.push({ kind: "partner_removed", wabaId: String(entry.id) });
+        continue;
+      }
+      // Coexistência: "smb_message_echoes" (o que o dono escreveu pelo celular), "history" e
+      // "smb_app_state_sync" (conversas e contatos do app) são IGNORADOS de propósito — o Amser
+      // não guarda as conversas do negócio (minimização de dados, LGPD; ADR 0015).
       if (change.field !== "messages") continue;
       const phoneNumberId = ((value.metadata as Json)?.phone_number_id as string) ?? null;
       for (const s of (value.statuses as Json[]) ?? []) {
@@ -270,6 +314,8 @@ export function parseMetaPayload(body: Json): WebhookEvent[] {
 // Mock (dev/testes)
 // ---------------------------------------------------------------------------
 export const mockSent: (SendTemplateInput | (Credentials & { toE164: string; text: string }))[] = [];
+/** Chamadas de onboarding feitas ao mock (testes). */
+export const mockOnboardingCalls: string[] = [];
 let mockFailures: { n: number; code?: number } = { n: 0 };
 export function mockWhatsappFailNext(n: number, code?: number) {
   mockFailures = { n, code };
@@ -304,6 +350,17 @@ export const mockWhatsappProvider: WhatsappProvider = {
   },
   parseWebhook(rawBody) {
     return parseMetaPayload(JSON.parse(rawBody));
+  },
+  async exchangeCode(code) {
+    if (code === "codigo-expirado") throw new WhatsappSendError("Meta 400: código inválido ou expirado (#100)", false, 100);
+    mockOnboardingCalls.push(`exchange:${code}`);
+    return `mock-business-token-${code}`;
+  },
+  async registerNumber(c, pin) {
+    mockOnboardingCalls.push(`register:${c.phoneNumberId}:${pin.length}`);
+  },
+  async syncSmbAppData(c, syncType) {
+    mockOnboardingCalls.push(`sync:${c.phoneNumberId}:${syncType}`);
   },
 };
 

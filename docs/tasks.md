@@ -47,7 +47,8 @@ Legenda: ✅ feito · 🟡 feito com provider simulado / depende de terceiro · 
 - 🔒 **Provedor de e-mail** em produção (qualquer SMTP: SES, Resend, Postmark, Brevo…).
 - 🔒 **Bucket** S3 ou R2 (o código suporta os dois).
 - ⬜ **Templates do WhatsApp:** criar pelo painel e aguardar a aprovação da Meta. No primeiro envio real, conferir o formato do webhook de resposta rápida.
-- ⬜ **Meta:** App Review para o Instagram; Embedded Signup do WhatsApp, que exige ser Tech Provider.
+- ✅ **WhatsApp:** cadastro integrado com coexistência implementado (ADR 0015).
+- ⬜ **Meta:** verificação da empresa + App Review (WhatsApp como Tech Provider e Instagram); configurar `WHATSAPP_APP_ID`/`WHATSAPP_ES_CONFIG_ID` e os campos de webhook da coexistência. Validar no 1º cliente real o payload de `PARTNER_REMOVED` e a validade do token de negócio.
 - ⬜ **Dependências com versão maior pendente:** Next 15 → 16 (corrige alerta do `postcss` embutido) e Prisma 6 → 7 (alerta do `deepmerge-ts`). São alertas de ferramentas de build, mas devem ser atualizados com teste dedicado.
 - ⬜ **IA real:** rodar `BRANDING_AI_PROVIDER=anthropic` com fotos reais e avaliar a qualidade e o custo por análise.
 - ⬜ **MFA:** códigos de recuperação e bloqueio de reutilização do mesmo código.

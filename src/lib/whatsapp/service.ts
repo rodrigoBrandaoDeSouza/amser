@@ -8,6 +8,7 @@ import { confirmPresence } from "../scheduling/booking";
 import { DEFAULT_TEMPLATES, QR_CONFIRM, QR_RESCHEDULE, isOptOutText, isQuickReply, templateCreatePayload } from "./templates";
 import { whatsappProvider, WhatsappSendError, type Credentials, type WebhookEvent } from "./provider";
 import { env } from "../env";
+import { randomInt } from "node:crypto";
 
 export function credentialsOf(conn: WhatsappConnection | null): Credentials {
   const token = conn?.encryptedCredentials ? decryptJson<{ accessToken: string }>(conn.encryptedCredentials).accessToken : null;
@@ -21,7 +22,17 @@ export function credentialsOf(conn: WhatsappConnection | null): Credentials {
 export async function saveAndTestConnection(
   tenantId: string,
   actorId: string,
-  input: { phoneNumberId: string; wabaId: string; accessToken?: string | null; sendWindowStart?: string; sendWindowEnd?: string },
+  input: {
+    phoneNumberId: string;
+    wabaId: string;
+    accessToken?: string | null;
+    sendWindowStart?: string;
+    sendWindowEnd?: string;
+    /** PIN de duas etapas definido no registro do número (cadastro integrado sem coexistência). */
+    pin?: string;
+    onboarding?: "manual" | "embedded" | "coexistence";
+    metaBusinessId?: string | null;
+  },
 ) {
   const db = tenantDb(tenantId);
   const existing = await db.whatsappConnection.findFirst({});
@@ -31,7 +42,7 @@ export async function saveAndTestConnection(
   const other = await prisma.whatsappConnection.findFirst({ where: { phoneNumberId: input.phoneNumberId, tenantId: { not: tenantId } } });
   if (other) throw Errors.validation("Este número já está conectado a outra empresa");
 
-  const encrypted = input.accessToken ? encryptJson({ accessToken: input.accessToken }) : existing?.encryptedCredentials;
+  const encrypted = input.accessToken ? encryptJson({ accessToken: input.accessToken, ...(input.pin ? { pin: input.pin } : {}) }) : existing?.encryptedCredentials;
   if (!encrypted) throw Errors.validation("Informe o token de acesso");
   const creds: Credentials = { phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, accessToken: decryptJson<{ accessToken: string }>(encrypted).accessToken };
 
@@ -69,12 +80,106 @@ export async function saveAndTestConnection(
     status,
     lastError,
     lastCheckedAt: new Date(),
+    // Novo token = nova forma de conexão; só revalidar (sem token) mantém a atual.
+    onboarding: input.onboarding ?? (input.accessToken ? "manual" : (existing?.onboarding ?? "manual")),
+    metaBusinessId: input.metaBusinessId !== undefined ? input.metaBusinessId : input.accessToken ? null : (existing?.metaBusinessId ?? null),
+    ...(input.accessToken && input.onboarding !== "coexistence" ? { coexistenceSyncAt: null } : {}),
   };
   if (existing) await db.whatsappConnection.update({ where: { id: existing.id }, data });
   else await db.whatsappConnection.create({ data: { ...data, tenantId } });
   await audit({ tenantId, actorId, action: "whatsapp.connect", resource: `tenant:${tenantId}`, meta: { status } });
   if (status === "error") throw new AppError("whatsapp_error", `Não foi possível validar na Meta: ${lastError}`, 422);
   return { info, subscribeWarning };
+}
+
+/** Eventos de sucesso do cadastro integrado (mensagem WA_EMBEDDED_SIGNUP da janela da Meta). */
+export const EMBEDDED_SIGNUP_FINISH = ["FINISH", "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"] as const;
+
+/**
+ * Conclui o cadastro integrado da Meta (Embedded Signup v5, ADR 0015).
+ * O navegador devolve o código (vale 30 s) e os IDs; tudo o mais roda aqui, servidor→Meta:
+ *  1. troca o código pelo token de negócio;
+ *  2. número novo: registra na Cloud API com PIN aleatório (guardado criptografado);
+ *     coexistência: NÃO registra (o número já está no app WhatsApp Business);
+ *  3. valida o número e inscreve o app na WABA (saveAndTestConnection);
+ *  4. coexistência: pede a sincronização (a Meta exige em até 24h) — o conteúdo é descartado no webhook;
+ *  5. cria os modelos de mensagem do Amser.
+ * O tenantId vem da sessão; os IDs do navegador só valem se o token da Meta tiver acesso a eles.
+ */
+export async function completeEmbeddedSignup(
+  tenantId: string,
+  actorId: string,
+  input: { code: string; event: string; phoneNumberId: string; wabaId: string; businessId?: string | null },
+) {
+  if (!(EMBEDDED_SIGNUP_FINISH as readonly string[]).includes(input.event)) throw Errors.validation("Cadastro na Meta não foi concluído");
+  if (!input.code || input.code.length > 2048) throw Errors.validation("Código da Meta ausente. Tente conectar de novo.");
+  if (!/^\d{5,30}$/.test(input.phoneNumberId) || !/^\d{5,30}$/.test(input.wabaId)) {
+    throw Errors.validation("A Meta não devolveu o número. Conclua todas as etapas da janela, escolhendo um número.");
+  }
+  if (input.businessId && !/^\d{5,30}$/.test(input.businessId)) throw Errors.validation("ID do negócio inválido");
+  const coexistence = input.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+  const provider = whatsappProvider();
+
+  let accessToken: string;
+  try {
+    accessToken = await provider.exchangeCode(input.code);
+  } catch (err) {
+    throw new AppError("whatsapp_error", `A Meta não confirmou a conexão (${err instanceof Error ? err.message : err}). Tente de novo.`, 422);
+  }
+  const creds: Credentials = { phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, accessToken };
+
+  let pin: string | undefined;
+  if (!coexistence) {
+    pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    try {
+      await provider.registerNumber(creds, pin);
+    } catch (err) {
+      throw new AppError("whatsapp_error", `Não consegui ativar o número na Meta: ${err instanceof Error ? err.message : err}`, 422);
+    }
+  }
+
+  const result = await saveAndTestConnection(tenantId, actorId, {
+    phoneNumberId: input.phoneNumberId,
+    wabaId: input.wabaId,
+    accessToken,
+    pin,
+    onboarding: coexistence ? "coexistence" : "embedded",
+    metaBusinessId: input.businessId ?? null,
+  });
+
+  const warnings: string[] = [];
+  if (result.subscribeWarning) warnings.push(`webhook: ${result.subscribeWarning}`);
+  if (coexistence) {
+    for (const t of ["smb_app_state_sync", "history"] as const) {
+      try {
+        await provider.syncSmbAppData(creds, t);
+      } catch (err) {
+        warnings.push(`sincronização (${t}): ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    await tenantDb(tenantId).whatsappConnection.updateMany({ data: { coexistenceSyncAt: new Date() } });
+  }
+  let templates: { name: string; status: string }[] = [];
+  try {
+    templates = await provisionTemplates(tenantId, actorId);
+  } catch (err) {
+    warnings.push(`modelos: ${err instanceof Error ? err.message : err}`);
+  }
+  await audit({ tenantId, actorId, action: "whatsapp.embedded_signup", resource: `tenant:${tenantId}`, meta: { coexistence, warnings: warnings.length } });
+  return { info: result.info, coexistence, warnings, templates };
+}
+
+/** O dono desconectou o Amser pelo app WhatsApp Business: para de enviar e avisa no painel. */
+async function markPartnerRemoved(wabaId: string) {
+  const conns = await prisma.whatsappConnection.findMany({ where: { wabaId } });
+  for (const c of conns) {
+    await prisma.whatsappConnection.update({
+      where: { id: c.id },
+      data: { status: "disabled", lastError: "O WhatsApp foi desconectado do Amser pelo app WhatsApp Business. Conecte de novo para voltar a enviar." },
+    });
+    await audit({ tenantId: c.tenantId, action: "whatsapp.partner_removed", resource: `tenant:${c.tenantId}` });
+  }
+  return conns.length;
 }
 
 async function connectionOrThrow(tenantId: string) {
@@ -163,6 +268,10 @@ export async function handleWhatsappEvents(events: WebhookEvent[]) {
         await optOutCustomer(msg.tenantId, msg.toPhoneE164, `meta:${ev.errorCode}`);
       }
       stats.statuses++;
+      continue;
+    }
+    if (ev.kind === "partner_removed") {
+      await markPartnerRemoved(ev.wabaId);
       continue;
     }
     if (ev.kind === "template_status") {

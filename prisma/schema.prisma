@@ -518,6 +518,12 @@ model WhatsappConnection {
   qualityRating        String?          @map("quality_rating")
   lastCheckedAt        DateTime?        @map("last_checked_at") @db.Timestamptz(3)
   lastError            String?          @map("last_error")
+  /// Como foi conectado: "manual" (IDs + token), "embedded" (cadastro integrado da Meta, número só na API)
+  /// ou "coexistence" (cadastro integrado com o número que continua no app WhatsApp Business). ADR 0015.
+  onboarding           String           @default("manual")
+  metaBusinessId       String?          @map("meta_business_id")
+  /// Coexistência: quando pedimos à Meta a sincronização (obrigatória em até 24h após conectar).
+  coexistenceSyncAt    DateTime?        @map("coexistence_sync_at") @db.Timestamptz(3)
   createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("whatsapp_connections")

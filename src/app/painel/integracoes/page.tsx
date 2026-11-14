@@ -4,7 +4,8 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { messageUsage } from "@/lib/metrics";
 import { maskPhone } from "@/lib/format";
-import { env } from "@/lib/env";
+import { env, embeddedSignupEnabled } from "@/lib/env";
+import { ConnectWhatsappButton } from "./ConnectWhatsappButton";
 import { DEFAULT_TEMPLATES, OPT_OUT_FOOTER } from "@/lib/whatsapp/templates";
 import { provisionTemplatesAction, saveTemplatesAction, saveWhatsappAction, syncTemplatesAction, testWhatsappAction } from "../actions";
 
@@ -34,6 +35,10 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
   const mock = env().WHATSAPP_PROVIDER === "mock";
   const connected = conn?.status === "connected";
   const webhookUrl = `${env().APP_URL.replace(/\/$/, "")}/api/integrations/whatsapp/webhook`;
+  const es = embeddedSignupEnabled();
+  const connectButton = (label?: string) => (
+    <ConnectWhatsappButton appId={env().WHATSAPP_APP_ID} configId={env().WHATSAPP_ES_CONFIG_ID} graphVersion={env().WHATSAPP_GRAPH_VERSION} simulate={mock} label={label} />
+  );
 
   return (
     <>
@@ -47,7 +52,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
       <div className="grid gap-6 lg:grid-cols-2">
         <Card
           title="1. Conectar o número"
-          actions={<Badge tone={connected ? "green" : conn?.status === "error" ? "red" : "amber"}>{connected ? "conectado" : conn?.status === "error" ? "erro" : "não conectado"}</Badge>}
+          actions={<Badge tone={connected ? "green" : conn?.status === "error" || conn?.status === "disabled" ? "red" : "amber"}>{connected ? "conectado" : conn?.status === "error" ? "erro" : conn?.status === "disabled" ? "desconectado" : "não conectado"}</Badge>}
         >
           {connected && conn && (
             <div className="mb-4 rounded-lg bg-zinc-50 p-3 text-sm">
@@ -56,9 +61,49 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                 Qualidade: <Badge tone={conn.qualityRating === "GREEN" ? "green" : conn.qualityRating === "YELLOW" ? "amber" : conn.qualityRating === "RED" ? "red" : "zinc"}>{conn.qualityRating ?? "—"}</Badge>
                 {" "}· validado em {conn.lastCheckedAt?.toLocaleString("pt-BR")}
               </div>
+              {conn.onboarding === "coexistence" && (
+                <p className="mt-2 text-zinc-600">
+                  Este número <strong>continua no app WhatsApp Business</strong> do seu celular: as conversas seguem normais por lá, e o Amser envia só as
+                  mensagens automáticas (confirmações, lembretes). Listas de transmissão e mensagens temporárias deixam de funcionar neste número.
+                </p>
+              )}
             </div>
           )}
           {conn?.lastError && <p className="mb-3 text-sm text-red-700">{conn.lastError}</p>}
+          {es && !connected && (
+            <div className="mb-4 space-y-3">
+              <p className="text-sm text-zinc-600">
+                Clique, entre com o Facebook do negócio e escolha o número. <strong>Já usa o app WhatsApp Business?</strong> Escolha o mesmo número: ele
+                continua funcionando no celular, e o Amser passa a enviar as confirmações e lembretes por ele.
+              </p>
+              {connectButton()}
+            </div>
+          )}
+          {es ? (
+            <details className="text-sm" open={!!conn && !connected && conn.onboarding === "manual" && !!conn.phoneNumberId}>
+              <summary className="cursor-pointer text-zinc-700">{connected ? "Trocar ou reconectar o número" : "Conexão manual (avançado)"}</summary>
+              <div className="mt-3 space-y-4">
+                {connected && connectButton("Reconectar com a Meta")}
+                <p className="text-xs text-zinc-500">Ou informe os IDs e o token de um usuário do sistema:</p>
+              <form action={saveWhatsappAction} className="grid gap-3 sm:grid-cols-2">
+                <Field label="Phone Number ID" hint="Meta → WhatsApp → Configuração da API"><Input name="phoneNumberId" defaultValue={conn?.phoneNumberId ?? ""} inputMode="numeric" required /></Field>
+                <Field label="WhatsApp Business Account ID (WABA)"><Input name="wabaId" defaultValue={conn?.wabaId ?? ""} inputMode="numeric" required /></Field>
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Token de acesso permanente (usuário do sistema)"
+                    hint={conn?.encryptedCredentials ? "Já configurado. Preencha só para substituir. Fica criptografado e nunca é exibido." : "Gerado no Gerenciador de Negócios com as permissões whatsapp_business_messaging e whatsapp_business_management."}
+                  >
+                    <Input name="accessToken" type="password" autoComplete="off" required={!conn?.encryptedCredentials} />
+                  </Field>
+                </div>
+                <div className="sm:col-span-2"><SubmitButton pendingText="Validando na Meta…">Salvar e validar</SubmitButton></div>
+                <p className="text-xs text-zinc-500 sm:col-span-2">
+                  Quais mensagens enviar e em que horário: <a href="/painel/mensagens" className="underline">Mensagens automáticas</a>.
+                </p>
+              </form>
+              </div>
+            </details>
+          ) : (
           <form action={saveWhatsappAction} className="grid gap-3 sm:grid-cols-2">
             <Field label="Phone Number ID" hint="Meta → WhatsApp → Configuração da API"><Input name="phoneNumberId" defaultValue={conn?.phoneNumberId ?? ""} inputMode="numeric" required /></Field>
             <Field label="WhatsApp Business Account ID (WABA)"><Input name="wabaId" defaultValue={conn?.wabaId ?? ""} inputMode="numeric" required /></Field>
@@ -75,6 +120,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
               Quais mensagens enviar e em que horário: <a href="/painel/mensagens" className="underline">Mensagens automáticas</a>.
             </p>
           </form>
+          )}
           {connected && (
             <form action={testWhatsappAction} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg bg-zinc-50 p-3">
               <Field label="Enviar mensagem de teste para" hint="Usa o modelo “hello_world” da Meta (em inglês), já aprovado em toda conta nova.">
@@ -86,7 +132,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <details className="mt-4 text-xs text-zinc-600">
             <summary className="cursor-pointer">Configuração do webhook (uma vez, no app da Meta)</summary>
             <p className="mt-2">URL de callback: <code className="break-all">{webhookUrl}</code></p>
-            <p>Campos: <code>messages</code> e <code>message_template_status_update</code>. O token de verificação fica com a equipe Amser.</p>
+            <p>Campos: <code>messages</code>, <code>message_template_status_update</code> e, para coexistência, <code>account_update</code>, <code>smb_message_echoes</code>, <code>history</code> e <code>smb_app_state_sync</code>. O token de verificação fica com a equipe Amser.</p>
           </details>
         </Card>
 

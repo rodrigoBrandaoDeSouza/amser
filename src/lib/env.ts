@@ -14,6 +14,10 @@ const schema = z.object({
   WHATSAPP_APP_SECRET: z.string().optional().default(""),
   WHATSAPP_VERIFY_TOKEN: z.string().optional().default(""),
   WHATSAPP_GRAPH_VERSION: z.string().default("v27.0"),
+  // Cadastro integrado da Meta (Embedded Signup, ADR 0015). Públicos (vão ao navegador): ID do app e
+  // ID da configuração do "Login do Facebook para Empresas". O App Secret continua só no servidor.
+  WHATSAPP_APP_ID: z.string().optional().default(""),
+  WHATSAPP_ES_CONFIG_ID: z.string().optional().default(""),
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default(".uploads"),
   // S3 ou Cloudflare R2 (R2: S3_ENDPOINT=https://<conta>.r2.cloudflarestorage.com, S3_REGION=auto)
@@ -102,6 +106,7 @@ export function productionProblems(): string[] {
   if (e.WHATSAPP_PROVIDER === "meta") {
     if (!e.WHATSAPP_APP_SECRET) p.push("WHATSAPP_APP_SECRET é obrigatório com WHATSAPP_PROVIDER=meta");
     if (!e.WHATSAPP_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN.length < 16) p.push("WHATSAPP_VERIFY_TOKEN deve ter 16+ caracteres");
+    if (!!e.WHATSAPP_APP_ID !== !!e.WHATSAPP_ES_CONFIG_ID) p.push("WHATSAPP_APP_ID e WHATSAPP_ES_CONFIG_ID precisam ser definidos juntos (cadastro integrado)");
   }
   // Caminho absoluto (Linux "/data/…" ou Windows "C:\…"); sem node:path para compilar também no edge.
   if (e.STORAGE_PROVIDER === "local" && !/^(\/|[A-Za-z]:[\\/])/.test(e.STORAGE_LOCAL_DIR)) {
@@ -113,4 +118,10 @@ export function productionProblems(): string[] {
 /** Só para testes: força reler as variáveis de ambiente. */
 export function resetEnvCacheForTests() {
   cached = null;
+}
+
+/** Botão "Conectar meu WhatsApp" (cadastro integrado da Meta) disponível? No mock, sempre (simulado). */
+export function embeddedSignupEnabled(): boolean {
+  const e = env();
+  return e.WHATSAPP_PROVIDER === "mock" || (!!e.WHATSAPP_APP_ID && !!e.WHATSAPP_ES_CONFIG_ID);
 }

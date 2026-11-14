@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/scheduling/booking";
 import { processOutbox } from "@/lib/whatsapp/outbox";
-import { classifyMetaError, mockSent, mockWhatsappFailNext, parseMetaPayload } from "@/lib/whatsapp/provider";
-import { handleWhatsappEvents, provisionTemplates, saveAndTestConnection } from "@/lib/whatsapp/service";
+import { classifyMetaError, mockOnboardingCalls, mockSent, mockWhatsappFailNext, parseMetaPayload } from "@/lib/whatsapp/provider";
+import { decryptJson } from "@/lib/crypto";
+import { completeEmbeddedSignup, handleWhatsappEvents, provisionTemplates, saveAndTestConnection } from "@/lib/whatsapp/service";
 import { DEFAULT_TEMPLATES, isOptOutText, templateCreatePayload } from "@/lib/whatsapp/templates";
 import { NOW, at, customer, makeTenant, resetDb } from "./helpers";
 
@@ -144,5 +145,75 @@ describe("erros de envio", () => {
     await processOutbox(new Date());
     expect((await prisma.whatsappConnection.findFirstOrThrow({})).status).toBe("error");
     expect(await prisma.messageOutbox.count({ where: { status: "dead" } })).toBe(1);
+  });
+});
+
+describe("cadastro integrado da Meta (Embedded Signup) e coexistência", () => {
+  const signup = (tenantId: string, over: Partial<{ code: string; event: string; phoneNumberId: string; wabaId: string; businessId: string | null }> = {}) =>
+    completeEmbeddedSignup(tenantId, "owner", {
+      code: "abc123",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      phoneNumberId: "1065403522",
+      wabaId: "1022901293",
+      businessId: "555000111",
+      ...over,
+    });
+
+  it("coexistência: troca o código, NÃO registra o número, sincroniza e cria os modelos", async () => {
+    const T = await makeTenant();
+    mockOnboardingCalls.length = 0;
+    const r = await signup(T.tenant.id);
+    expect(r.coexistence).toBe(true);
+    expect(r.warnings).toEqual([]);
+    expect(r.templates).toHaveLength(7);
+    expect(mockOnboardingCalls).toEqual(["exchange:abc123", "sync:1065403522:smb_app_state_sync", "sync:1065403522:history"]);
+    const conn = await prisma.whatsappConnection.findFirstOrThrow({ where: { tenantId: T.tenant.id } });
+    expect(conn).toMatchObject({ status: "connected", onboarding: "coexistence", metaBusinessId: "555000111" });
+    expect(conn.coexistenceSyncAt).not.toBeNull();
+    // token de negócio guardado só criptografado
+    expect(conn.encryptedCredentials).not.toContain("mock-business-token");
+    expect(decryptJson<{ accessToken: string }>(conn.encryptedCredentials!).accessToken).toBe("mock-business-token-abc123");
+  });
+
+  it("número novo (só API): registra com PIN de 6 dígitos guardado criptografado", async () => {
+    const T = await makeTenant();
+    mockOnboardingCalls.length = 0;
+    const r = await signup(T.tenant.id, { event: "FINISH" });
+    expect(r.coexistence).toBe(false);
+    expect(mockOnboardingCalls).toEqual(["exchange:abc123", "register:1065403522:6"]);
+    const conn = await prisma.whatsappConnection.findFirstOrThrow({ where: { tenantId: T.tenant.id } });
+    expect(conn).toMatchObject({ onboarding: "embedded", coexistenceSyncAt: null });
+    expect(decryptJson<{ pin: string }>(conn.encryptedCredentials!).pin).toMatch(/^[0-9]{6}$/);
+  });
+
+  it("recusa fluxo não concluído, IDs inválidos, código expirado e número de outra empresa", async () => {
+    const T = await makeTenant();
+    await expect(signup(T.tenant.id, { event: "CANCEL" })).rejects.toMatchObject({ code: "validation" });
+    await expect(signup(T.tenant.id, { event: "FINISH_ONLY_WABA" })).rejects.toMatchObject({ code: "validation" });
+    await expect(signup(T.tenant.id, { phoneNumberId: "" })).rejects.toMatchObject({ code: "validation" });
+    await expect(signup(T.tenant.id, { wabaId: "1; drop" })).rejects.toMatchObject({ code: "validation" });
+    await expect(signup(T.tenant.id, { code: "codigo-expirado" })).rejects.toMatchObject({ code: "whatsapp_error" });
+    expect(await prisma.whatsappConnection.count({ where: { tenantId: T.tenant.id } })).toBe(0);
+
+    await signup(T.tenant.id);
+    const B = await makeTenant();
+    await expect(signup(B.tenant.id)).rejects.toMatchObject({ code: "validation" });
+    expect(await prisma.whatsappConnection.count({ where: { tenantId: B.tenant.id } })).toBe(0);
+  });
+
+  it("dono desconecta pelo app (PARTNER_REMOVED): conexão desativada e mensagens deixam de sair", async () => {
+    const T = await makeTenant();
+    await signup(T.tenant.id);
+    await handleWhatsappEvents(parseMetaPayload(webhook({ event: "PARTNER_REMOVED" }, "account_update")));
+    const conn = await prisma.whatsappConnection.findFirstOrThrow({ where: { tenantId: T.tenant.id } });
+    expect(conn.status).toBe("disabled");
+    expect(conn.lastError).toContain("desconectado");
+  });
+
+  it("conversas do app (ecos, histórico, contatos) são ignoradas: nada é guardado", () => {
+    const echo = webhook({ message_echoes: [{ from: "5511900000000", to: "5511988887777", id: "wamid.echo", timestamp: "1", type: "text", text: { body: "oi, tudo bem?" } }] }, "smb_message_echoes");
+    const history = webhook({ history: [{ metadata: { phase: 0 }, threads: [{ id: "5511988887777", messages: [{ id: "wamid.h", type: "text", text: { body: "conversa antiga" } }] }] }] }, "history");
+    const contacts = webhook({ state_sync: [{ type: "contact", contact: { full_name: "Carla", phone_number: "5511988887777" }, action: "add" }] }, "smb_app_state_sync");
+    for (const p of [echo, history, contacts]) expect(parseMetaPayload(p)).toEqual([]);
   });
 });

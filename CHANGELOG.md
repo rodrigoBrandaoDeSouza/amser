@@ -8,6 +8,12 @@
 - Botões mostram spinner e ficam bloqueados enquanto a ação roda (evita duplo envio).
 - Agendamento: etapas com nome ("Serviço · Profissional · Horário · Seus dados"), volta por etapa, resumo da escolha, esqueleto dos horários, tela "Horário reservado!" logo após confirmar, spinners em cupom, lista de espera, confirmação, remarcação e cancelamento.
 
+**WhatsApp: conecte o próprio número (coexistência)**
+- Botão "Conectar meu WhatsApp" em Integrações (cadastro integrado da Meta, Embedded Signup v5): o dono entra com o Facebook e escolhe o número, sem copiar IDs ou tokens.
+- Coexistência: o número continua funcionando no app WhatsApp Business do celular; o Amser envia só as mensagens automáticas e não guarda as conversas do app.
+- Número novo: registro automático na Cloud API. Modelos de mensagem criados na hora.
+- Desconexão pelo app (PARTNER_REMOVED) desativa os envios sozinha. Conexão manual continua como "avançado". ADR 0015.
+
 **Deploy**
 - Publicação em VPS (Hostinger, Hetzner): `docker-compose.prod.yml` com Caddy (HTTPS automático, inclusive para domínios próprios verificados via `/api/tls/ask`), Postgres, app, worker e backup diário (`deploy/vps/backup.sh`, com envio opcional ao R2). Guia: `docs/deploy-vps.md`.
 

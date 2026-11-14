@@ -13,4 +13,4 @@
 - **Erros** classificados pelo código. Retentáveis com backoff: 130429, 131056, 80007, 4, 131000, 131016, 1, 2, 2494100 e 131057. Token inválido (190/0) marca a conexão com erro. Erros de template e definitivos vão para dead-letter.
 - Guardamos o **BSUID** (`user_id`) do cliente quando chega.
 
-**Pendências.** Embedded Signup (onboarding sem copiar token) exige o Amser ser Tech Provider da Meta. A preferência de marketing (`user_preferences`) só importa se houver campanhas, que são da Fase 3. Validar no primeiro envio real o formato do botão de resposta rápida no webhook (`button.text` vs `payload`).
+**Pendências.** Embedded Signup e coexistência: ver ADR 0015. A preferência de marketing (`user_preferences`) só importa se houver campanhas, que são da Fase 3. Validar no primeiro envio real o formato do botão de resposta rápida no webhook (`button.text` vs `payload`).
