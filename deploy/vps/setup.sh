@@ -193,6 +193,7 @@ say "4/6 Subindo o Amser (o primeiro build leva alguns minutos)"
 if docker buildx inspect amser-builder >/dev/null 2>&1 || docker buildx create --name amser-builder --driver docker-container \
   --driver-opt memory=1536m --driver-opt memory-swap=3072m --driver-opt cpu-shares=256 >/dev/null 2>&1; then
   docker buildx build --builder amser-builder --load -t amser-app:local .
+  docker buildx stop amser-builder >/dev/null 2>&1 || true   # libera a memória do construtor
 else
   warn "Construtor limitado indisponível; usando o build padrão do Docker."
   $COMPOSE build
