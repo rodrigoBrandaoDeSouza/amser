@@ -13,6 +13,37 @@ As fotos ficam no volume `amser_uploads`, no disco da VPS, que não é apagado. 
 
 **Tamanho:** 1 vCPU e 4 GB (Hostinger KVM 1) dão conta do começo. O build da imagem leva alguns minutos nessa máquina.
 
+## Instalação rápida (um comando)
+
+Na VPS com **Ubuntu 22.04 ou 24.04 limpo**, entre como root e rode:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rodrigoBrandaoDeSouza/amser/main/deploy/vps/setup.sh | ADMIN_EMAIL=voce@email.com bash
+```
+
+O script [`deploy/vps/setup.sh`](../deploy/vps/setup.sh) faz as seções 2, 4 e 6 deste guia:
+- instala o Docker, liga o firewall (sem trancar o SSH) e cria memória extra (swap);
+- baixa o Amser, **gera todos os segredos** no `.env`, sobe tudo com HTTPS e agenda o backup.
+
+No fim, ele mostra o endereço e a senha do superadmin.
+
+| Opção (antes do `bash`) | Efeito |
+|---|---|
+| sem `DOMAIN` | Usa `app.<seu-ip>.sslip.io`, um endereço gratuito que já aponta para a VPS, com HTTPS. Bom para teste |
+| `DOMAIN=app.seudominio.com.br` | Domínio próprio. Crie antes o registro A apontando para o IP da VPS (seção 3) |
+| `WHATSAPP=mock` (padrão) | Modo de teste: as mensagens não saem de verdade e o botão "Conectar meu WhatsApp" é simulado |
+| `WHATSAPP=meta` | WhatsApp oficial. Preencha `WHATSAPP_APP_SECRET` no `.env` e rode `docker compose -f docker-compose.prod.yml up -d` |
+| `SEED_DEMO=1` | Carrega as empresas de demonstração. Os logins usam a senha pública `amser-dev-123`, então só use em teste |
+
+Pode rodar de novo a qualquer momento: ele atualiza o código e mantém o `.env`.
+
+**Trocar o sslip.io por um domínio de verdade depois:**
+1. Aponte o domínio para o IP.
+2. No `.env`, troque `APP_DOMAIN` e `APP_URL`.
+3. Rode `docker compose -f docker-compose.prod.yml up -d`.
+
+As seções abaixo descrevem o mesmo processo passo a passo, para quem prefere fazer à mão.
+
 ## 1. Contratar e acessar a VPS
 
 1. Na Hostinger, contrate a **VPS** (KVM 1 ou 2). A hospedagem compartilhada não serve. Sistema: **Ubuntu 24.04** (pode ser o modelo "Ubuntu com Docker").
