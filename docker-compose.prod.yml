@@ -1,12 +1,25 @@
 # Produção em VPS (Hostinger, Hetzner, etc.) — guia: docs/deploy-vps.md
 #   docker compose -f docker-compose.prod.yml up -d --build
-# Lê as variáveis do arquivo .env (copie de deploy/vps/env.example).
+# Lê as variáveis do arquivo .env (gerado por deploy/vps/setup.sh ou copiado de deploy/vps/env.example).
+#
+# Dois modos (COMPOSE_PROFILES no .env):
+#   - VPS só do Amser: COMPOSE_PROFILES=proxy → o Caddy assume as portas 80/443 (HTTPS automático).
+#   - VPS compartilhada com outra aplicação: COMPOSE_PROFILES vazio → sem Caddy; o app escuta só em
+#     127.0.0.1:${APP_PORT} e o servidor web que já existe (ex.: Nginx) encaminha o domínio do Amser.
+#
+# Convivência: limites de memória e oom_score_adj alto — se faltar memória na máquina, o Linux
+# sacrifica primeiro o Amser, nunca a outra aplicação.
 name: amser-prod
+
+x-limits: &limits
+  restart: unless-stopped
+  oom_score_adj: 800
 
 services:
   db:
+    <<: *limits
     image: postgres:16-alpine
-    restart: unless-stopped
+    mem_limit: 512m
     environment:
       POSTGRES_USER: amser
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
@@ -20,8 +33,10 @@ services:
       retries: 20
 
   app:
+    <<: *limits
     build: .
-    restart: unless-stopped
+    image: amser-app:local
+    mem_limit: 1g
     depends_on:
       db:
         condition: service_healthy
@@ -31,12 +46,18 @@ services:
       NODE_ENV: production
       STORAGE_LOCAL_DIR: /data/uploads
       TRUST_PROXY_HOPS: "1"
+      NODE_OPTIONS: --max-old-space-size=768
+    # Só na própria máquina (127.0.0.1): o acesso de fora passa pelo Caddy ou pelo Nginx existente.
+    ports:
+      - "127.0.0.1:${APP_PORT:-3010}:3000"
     volumes:
       - uploads:/data/uploads
 
   worker:
+    <<: *limits
     build: .
-    restart: unless-stopped
+    image: amser-app:local
+    mem_limit: 384m
     depends_on:
       app:
         condition: service_healthy
@@ -45,6 +66,7 @@ services:
       DATABASE_URL: postgresql://amser:${POSTGRES_PASSWORD}@db:5432/amser?connection_limit=3
       NODE_ENV: production
       STORAGE_LOCAL_DIR: /data/uploads
+      NODE_OPTIONS: --max-old-space-size=256
     volumes:
       - uploads:/data/uploads
     command: ["npx", "tsx", "scripts/run-jobs.ts", "--loop"]
@@ -52,8 +74,10 @@ services:
       disable: true
 
   caddy:
+    <<: *limits
+    profiles: ["proxy"]
     image: caddy:2.10-alpine
-    restart: unless-stopped
+    mem_limit: 128m
     depends_on:
       - app
     ports:

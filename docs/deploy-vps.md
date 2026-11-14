@@ -35,7 +35,23 @@ No fim, ele mostra o endereço e a senha do superadmin.
 | `WHATSAPP=meta` | WhatsApp oficial. Preencha `WHATSAPP_APP_SECRET` no `.env` e rode `docker compose -f docker-compose.prod.yml up -d` |
 | `SEED_DEMO=1` | Carrega as empresas de demonstração. Os logins usam a senha pública `amser-dev-123`, então só use em teste |
 
+| `CHECK_ONLY=1` | Só diagnostica (memória, disco, portas, servidor web) e diz o que faria. Não altera nada |
+| `NGINX=0` | No modo compartilhado, não mexe no Nginx; só mostra para onde apontar |
+
 Pode rodar de novo a qualquer momento: ele atualiza o código e mantém o `.env`.
+
+### VPS que já tem outra aplicação
+
+O script foi feito para **não afetar** o que já roda na máquina:
+
+- **Firewall:** não liga nem muda. Se o `ufw` já estiver ativo, só acrescenta as liberações quando o Amser for dono das portas 80/443.
+- **Portas 80/443 já em uso** (Nginx, Apache, outro container): o Amser não as toma. Ele roda só em `127.0.0.1:<porta livre a partir de 3010>`, invisível de fora.
+  - Se o servidor web for o **Nginx** do sistema, o script cria um site só para o domínio do Amser. Antes de recarregar, roda `nginx -t`; se o teste falhar, apaga o arquivo e para, sem mudar nada. O HTTPS do domínio do Amser vem do `certbot --nginx`, que altera apenas esse site.
+  - Para outros servidores web, o script mostra para onde apontar.
+- **Memória:** o build roda num construtor isolado (limite de 1,5 GB, prioridade baixa de CPU). Os containers têm limite (banco 512 MB, app 1 GB, worker 384 MB) e `oom_score_adj` alto: se faltar memória, o Linux encerra primeiro o Amser, nunca a outra aplicação. Com menos de 1,8 GB livres, o script nem começa.
+- **Arquivos e dados:** o script só cria `/opt/amser`, volumes e containers com nome `amser*`, e o site `amser` do Nginx. O banco do Amser é um container próprio, sem porta exposta, e não usa um Postgres que já exista.
+
+No modo compartilhado, os **domínios próprios das empresas** (seção abaixo) precisam ser adicionados como sites no Nginx, um a um. O HTTPS automático por domínio é do modo com Caddy.
 
 **Trocar o sslip.io por um domínio de verdade depois:**
 1. Aponte o domínio para o IP.
