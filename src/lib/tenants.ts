@@ -9,6 +9,7 @@ import { MAX_UPLOAD_BYTES, optimizeImage, sniffImage, storage } from "./storage"
 import { env } from "./env";
 import { startTrial } from "./billing/service";
 import { isEnabled } from "./flags";
+import { normalizeInstagramHandle } from "./instagram/handle";
 
 export const PREVIEW_DAYS = 14;
 
@@ -90,7 +91,7 @@ export async function createTenant(input: {
         status: input.status,
         planId,
         phone: input.phone ?? null,
-        instagramHandle: input.instagramHandle?.replace(/^@/, "") || null,
+        instagramHandle: normalizeInstagramHandle(input.instagramHandle),
         previewToken: isProspect ? randomToken(24) : null,
         previewExpiresAt: isProspect ? new Date(Date.now() + PREVIEW_DAYS * 86400_000) : null,
         units: { create: { name: "Principal" } },

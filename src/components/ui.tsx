@@ -3,25 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
-export function Button({
-  variant = "primary",
-  className,
-  ...props
-}: ComponentProps<"button"> & { variant?: "primary" | "secondary" | "danger" | "ghost" }) {
-  return (
-    <button
-      {...props}
-      className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50",
-        variant === "primary" && "bg-zinc-900 text-white hover:bg-zinc-700",
-        variant === "secondary" && "border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50",
-        variant === "danger" && "border border-red-200 bg-white text-red-700 hover:bg-red-50",
-        variant === "ghost" && "text-zinc-700 hover:bg-zinc-100",
-        className,
-      )}
-    />
-  );
-}
+export { Button, Spinner, Skeleton } from "./Button";
 
 export function LinkButton({ variant = "secondary", className, ...props }: ComponentProps<typeof Link> & { variant?: "primary" | "secondary" }) {
   return (

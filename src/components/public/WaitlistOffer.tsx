@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Skeleton, Spinner } from "../Button";
 
 export function WaitlistOffer({ token, slug }: { token: string; slug: string }) {
   const router = useRouter();
@@ -34,7 +35,16 @@ export function WaitlistOffer({ token, slug }: { token: string; slug: string }) 
     load();
   }
 
-  if (!state) return <p className="pub-muted mt-6">Carregando horários…</p>;
+  if (!state)
+    return (
+      <div className="mt-6" role="status" aria-label="Carregando horários">
+        <div className="grid grid-cols-4 gap-2">
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-9" />
+          ))}
+        </div>
+      </div>
+    );
   if (!["waiting", "offered"].includes(state.status)) {
     return (
       <div className="mt-6 space-y-3">
@@ -59,6 +69,11 @@ export function WaitlistOffer({ token, slug }: { token: string; slug: string }) 
             </button>
           ))}
         </div>
+      )}
+      {busy && (
+        <p className="pub-muted inline-flex items-center gap-2 text-sm" role="status">
+          <Spinner /> Reservando…
+        </p>
       )}
     </div>
   );

@@ -78,9 +78,13 @@ docker compose --profile app up --build   # Postgres + app (http://localhost:301
 
 Os testes de integração rodam contra Postgres real: concorrência de reservas, isolamento entre tenants, Pix (idempotência, expiração, pagamento tardio), remarcação atômica, outbox do WhatsApp e ciclo da prévia.
 
-## Deploy (Railway)
+## Deploy
 
-> **Guia completo da versão 1.0 (Railway + WhatsApp oficial): [docs/deploy.md](docs/deploy.md).**
+> **VPS (Hostinger, Hetzner…), opção mais barata:** [docs/deploy-vps.md](docs/deploy-vps.md). Docker Compose com Caddy (HTTPS automático, inclusive domínios das empresas), Postgres, worker e backup.
+>
+> **Railway:** [docs/deploy.md](docs/deploy.md).
+
+### Railway
 
 1. Crie um projeto com dois serviços: **PostgreSQL** e esta aplicação (deploy do GitHub). O `railway.json` define build, migrations no start e healthcheck (`/api/health`).
 2. Variáveis da aplicação: todas do `.env.example`, com `NODE_ENV=production`, `APP_URL` = domínio público, segredos fortes (`SESSION_SECRET`, `CREDENTIALS_KEY`, `JOBS_SECRET`, `PAYMENT_WEBHOOK_SECRET`) e `DATABASE_URL` referenciando o Postgres do projeto.

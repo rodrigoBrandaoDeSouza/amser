@@ -96,9 +96,9 @@ export function productionProblems(): string[] {
   const e = env();
   const p: string[] = [];
   if (!e.APP_URL.startsWith("https://")) p.push("APP_URL precisa ser https:// em produção");
-  if (/troque|build-only|dev-/i.test(e.SESSION_SECRET)) p.push("SESSION_SECRET parece ser um valor de exemplo — gere um aleatório");
+  if (/troque|gere-com|build-only|dev-/i.test(e.SESSION_SECRET)) p.push("SESSION_SECRET parece ser um valor de exemplo — gere um aleatório");
   if (Buffer.from(e.CREDENTIALS_KEY, "base64").length !== 32) p.push("CREDENTIALS_KEY deve ter 32 bytes em base64");
-  if (/^dev-/.test(e.JOBS_SECRET)) p.push("JOBS_SECRET parece ser um valor de exemplo");
+  if (/^dev-|gere-com/.test(e.JOBS_SECRET)) p.push("JOBS_SECRET parece ser um valor de exemplo");
   if (e.WHATSAPP_PROVIDER === "meta") {
     if (!e.WHATSAPP_APP_SECRET) p.push("WHATSAPP_APP_SECRET é obrigatório com WHATSAPP_PROVIDER=meta");
     if (!e.WHATSAPP_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN.length < 16) p.push("WHATSAPP_VERIFY_TOKEN deve ter 16+ caracteres");

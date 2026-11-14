@@ -240,7 +240,7 @@ export default async function TenantDetail({ params, searchParams }: { params: P
               {domains.length > 0 && (
                 <div className="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-600">
                   Domínios: {domains.map((d) => `${d.hostname}${d.verifiedAt ? " ✓" : " (pendente)"}`).join(", ")}
-                  <p className="mt-1">Domínio verificado precisa ser adicionado ao serviço no Railway para emitir o HTTPS.</p>
+                  <p className="mt-1">HTTPS: na VPS com Caddy é emitido sozinho no primeiro acesso; no Railway, adicione o domínio ao serviço.</p>
                 </div>
               )}
             </Card>

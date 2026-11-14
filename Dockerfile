@@ -17,7 +17,9 @@ RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" SESSION_SECRET=
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/* \
-  && groupadd -r amser && useradd -r -g amser amser
+  && groupadd -r amser && useradd -r -g amser amser \
+  && mkdir -p /data/uploads && chown -R amser:amser /data
+# A pasta das fotos já pertence ao usuário do app: um volume nomeado novo herda esse dono.
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000
 COPY --from=build --chown=amser:amser /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=amser:amser /app/node_modules ./node_modules

@@ -9,7 +9,7 @@ import { expireHolds, retryRefunds } from "@/lib/jobs";
 import { joinWaitlist, bookFromWaitlist, signWaitlistToken, offerFreedSlot } from "@/lib/waitlist";
 import { addMonths, handleBillingWebhook, runBillingCycle, startTrial } from "@/lib/billing/service";
 import { signMockBillingWebhook, BILLING_SIGNATURE_HEADER } from "@/lib/billing/provider";
-import { addDomain, normalizeHostname, tenantByHost, verifyDomain } from "@/lib/domains";
+import { addDomain, canIssueCertificate, normalizeHostname, tenantByHost, verifyDomain } from "@/lib/domains";
 import { connectInstagram, importInstagramMedia, listInstagramMedia } from "@/lib/instagram/service";
 import { isAllowedMediaHost } from "@/lib/instagram/provider";
 import { selfSignup } from "@/lib/tenants";
@@ -270,12 +270,16 @@ describe("domínio próprio", () => {
 
     const d = await addDomain(T.tenant.id, "agenda.studio.com.br");
     expect(await tenantByHost("agenda.studio.com.br")).toBeNull();
+    expect(await canIssueCertificate("agenda.studio.com.br")).toBe(false); // HTTPS só depois de verificado
     await expect(verifyDomain(T.tenant.id, d.id, async () => [["outro-valor"]])).rejects.toMatchObject({ code: "validation" });
     await verifyDomain(T.tenant.id, d.id, async (name) => {
       expect(name).toBe("_amser-verify.agenda.studio.com.br");
       return [[d.verificationToken]];
     });
     expect((await tenantByHost("AGENDA.studio.com.br:443"))?.id).toBe(T.tenant.id);
+    expect(await canIssueCertificate("agenda.studio.com.br")).toBe(true);
+    expect(await canIssueCertificate("qualquer.dominio.com")).toBe(false);
+    expect(await canIssueCertificate("1.2.3.4")).toBe(false);
 
     const other = await makeTenant();
     await expect(addDomain(other.tenant.id, "agenda.studio.com.br")).rejects.toMatchObject({ code: "validation" });

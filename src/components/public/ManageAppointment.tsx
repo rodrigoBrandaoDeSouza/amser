@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Skeleton, Spinner } from "../Button";
 
 const STATUS_TEXT: Record<string, string> = {
   aguardando_sinal: "Aguardando pagamento do sinal",
@@ -170,8 +171,9 @@ export function ManageAppointment(props: {
       {active && mode === "view" && (
         <div className="space-y-3">
           {status === "pendente" && !props.confirmedPresence && (
-            <button type="button" disabled={busy} className="pub-btn w-full px-4 py-3 font-semibold" onClick={() => act({ action: "confirm" }, "Presença confirmada. Até lá!")}>
-              Confirmar presença
+            <button type="button" disabled={busy} aria-busy={busy || undefined} className="pub-btn inline-flex w-full items-center justify-center gap-2 px-4 py-3 font-semibold" onClick={() => act({ action: "confirm" }, "Presença confirmada. Até lá!")}>
+              {busy && <Spinner />}
+              {busy ? "Confirmando…" : "Confirmar presença"}
             </button>
           )}
           <div className="grid grid-cols-2 gap-2">
@@ -211,8 +213,9 @@ export function ManageAppointment(props: {
             <button type="button" className="pub-btn px-3 py-2 text-sm" data-variant="outline" onClick={() => setMode("view")}>
               Voltar
             </button>
-            <button type="button" disabled={busy} className="pub-btn px-3 py-2 text-sm" onClick={() => act({ action: "cancel" }, "Agendamento cancelado.")}>
-              Confirmar cancelamento
+            <button type="button" disabled={busy} aria-busy={busy || undefined} className="pub-btn inline-flex items-center justify-center gap-2 px-3 py-2 text-sm" onClick={() => act({ action: "cancel" }, "Agendamento cancelado.")}>
+              {busy && <Spinner />}
+              {busy ? "Cancelando…" : "Confirmar cancelamento"}
             </button>
           </div>
         </section>
@@ -273,7 +276,11 @@ function Reschedule(props: {
         ))}
       </div>
       {slots === null ? (
-        <p className="pub-muted text-sm">Carregando…</p>
+<div role="status" aria-label="Carregando horários" className="grid grid-cols-4 gap-2">
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-9" />
+          ))}
+        </div>
       ) : slots.length === 0 ? (
         <p className="pub-muted text-sm">Sem horários neste dia.</p>
       ) : (
@@ -285,7 +292,12 @@ function Reschedule(props: {
           ))}
         </div>
       )}
-      <button type="button" className="pub-muted text-sm underline" onClick={props.onCancel}>
+      {props.busy && (
+        <p className="pub-muted inline-flex items-center gap-2 text-sm" role="status">
+          <Spinner /> Trocando o horário…
+        </p>
+      )}
+      <button type="button" className="pub-muted block text-sm underline" onClick={props.onCancel}>
         Voltar
       </button>
     </section>

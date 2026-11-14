@@ -2,6 +2,7 @@ import type { Tenant } from "@prisma/client";
 import type { Theme } from "@/lib/branding/theme";
 import type { PublicService, PublicUnit } from "@/lib/public";
 import { ThemeShell } from "./ThemeShell";
+import { normalizeInstagramHandle } from "@/lib/instagram/handle";
 import { BookingFlow } from "./BookingFlow";
 import { localDate } from "@/lib/time";
 
@@ -27,6 +28,7 @@ export function PublicPage({
   const hero = theme.heroMediaId;
   const alt = (id: string) => theme.accessibility.altTexts[id] ?? `Foto de ${tenant.name}`;
   const whatsapp = tenant.whatsappContact?.replace(/\D/g, "");
+  const instagram = normalizeInstagramHandle(tenant.instagramHandle);
 
   return (
     <ThemeShell theme={theme}>
@@ -114,9 +116,9 @@ export function PublicPage({
                   WhatsApp
                 </a>
               )}
-              {tenant.instagramHandle && (
-                <a className="underline" href={`https://instagram.com/${tenant.instagramHandle}`} target="_blank" rel="noopener noreferrer">
-                  @{tenant.instagramHandle}
+              {instagram && (
+                <a className="underline" href={`https://instagram.com/${instagram}`} target="_blank" rel="noopener noreferrer">
+                  @{instagram}
                 </a>
               )}
             </div>

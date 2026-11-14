@@ -5,6 +5,7 @@ import { requireTenantUser } from "@/lib/auth/session";
 import { runAction, str, int } from "@/lib/actions";
 import { Errors } from "@/lib/errors";
 import { parseBRL } from "@/lib/format";
+import { normalizeInstagramHandle } from "@/lib/instagram/handle";
 import { isValidTime, zonedToUtc, isValidDate } from "@/lib/time";
 import { audit } from "@/lib/audit";
 import { encryptJson } from "@/lib/crypto";
@@ -379,7 +380,7 @@ export async function saveSettingsAction(fd: FormData) {
         phone: str(fd, "phone") || null,
         whatsappContact: str(fd, "whatsappContact") || null,
         address: str(fd, "address").slice(0, 200) || null,
-        instagramHandle: str(fd, "instagram").replace(/^@/, "") || null,
+        instagramHandle: normalizeInstagramHandle(str(fd, "instagram")),
         minAdvanceMinutes: clamp("minAdvanceMinutes", 0, 10080, 60),
         maxHorizonDays: clamp("maxHorizonDays", 1, 365, 60),
         cancelLimitHours: clamp("cancelLimitHours", 0, 168, 24),

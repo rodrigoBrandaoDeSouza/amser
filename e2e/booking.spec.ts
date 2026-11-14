@@ -26,7 +26,7 @@ async function pickFirstSlot(page: Page) {
   // Procura o primeiro dia com horário (alguns dias podem estar sem expediente).
   for (let i = 0; i < 10; i++) {
     const slots = page.locator("button.pub-chip.tabular-nums");
-    await page.getByText("Carregando horários…").waitFor({ state: "detached" }).catch(() => undefined);
+    await page.getByRole("status", { name: "Carregando horários" }).waitFor({ state: "detached" }).catch(() => undefined);
     if ((await slots.count()) > 0) {
       await slots.first().click();
       return;

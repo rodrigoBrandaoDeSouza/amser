@@ -1,5 +1,19 @@
 # Changelog
 
+## Não lançado
+
+**Layout e navegação**
+- Painel e superadmin com menu lateral agrupado por tarefa (Agenda e clientes, Seu negócio, Página e WhatsApp, Conta), ícones, item ativo destacado e menu deslizante no celular.
+- Telas de carregamento: esqueleto com o formato da página ao trocar de tela, barra de progresso no topo e spinner no item clicado.
+- Botões mostram spinner e ficam bloqueados enquanto a ação roda (evita duplo envio).
+- Agendamento: etapas com nome ("Serviço · Profissional · Horário · Seus dados"), volta por etapa, resumo da escolha, esqueleto dos horários, tela "Horário reservado!" logo após confirmar, spinners em cupom, lista de espera, confirmação, remarcação e cancelamento.
+
+**Deploy**
+- Publicação em VPS (Hostinger, Hetzner): `docker-compose.prod.yml` com Caddy (HTTPS automático, inclusive para domínios próprios verificados via `/api/tls/ask`), Postgres, app, worker e backup diário (`deploy/vps/backup.sh`, com envio opcional ao R2). Guia: `docs/deploy-vps.md`.
+
+**Correções**
+- Instagram salvo como link completo aparecia como "@https://www.instagram.com/…". Agora o @ é extraído de qualquer formato (link, @ ou nome).
+
 ## 1.0.0 — 2026-11-13
 
 Primeira versão publicável.

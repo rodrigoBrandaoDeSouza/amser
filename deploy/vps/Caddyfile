@@ -1,0 +1,31 @@
+# HTTPS automático (Let's Encrypt) para o domínio do Amser e para os
+# domínios próprios das empresas. Antes de emitir um certificado para um
+# domínio desconhecido, o Caddy pergunta ao app se ele foi verificado.
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://app:3000/api/tls/ask
+	}
+}
+
+(app) {
+	encode zstd gzip
+	reverse_proxy app:3000
+}
+
+{$APP_DOMAIN} {
+	import app
+}
+
+# Domínios próprios das empresas (agenda.studio.com.br → CNAME para o APP_DOMAIN).
+https:// {
+	tls {
+		on_demand
+	}
+	import app
+}
+
+# HTTP → HTTPS
+http:// {
+	redir https://{host}{uri} permanent
+}

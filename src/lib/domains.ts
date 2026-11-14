@@ -9,7 +9,8 @@ import { randomToken } from "./crypto";
  * Domínio próprio (Fase 2). O dono aponta o domínio (CNAME) para o Amser e
  * prova a posse com um registro TXT. O middleware reescreve o host para a
  * página pública do tenant. O certificado HTTPS é emitido pela plataforma de
- * hospedagem (no Railway: adicionar o domínio ao serviço) — ver README.
+ * hospedagem: na VPS, o Caddy emite sozinho após consultar canIssueCertificate;
+ * no Railway, é preciso adicionar o domínio ao serviço.
  */
 export const VERIFY_PREFIX = "_amser-verify";
 
@@ -71,4 +72,17 @@ export async function tenantByHost(host: string): Promise<Tenant | null> {
   const d = await prisma.tenantDomain.findUnique({ where: { hostname: h }, include: { tenant: true } });
   if (!d?.verifiedAt || d.tenant.status !== "active") return null;
   return d.tenant;
+}
+
+/**
+ * Pode emitir certificado HTTPS para este host? Consultado pelo Caddy
+ * ("on-demand TLS") antes de pedir o certificado à Let's Encrypt. Sem isso,
+ * qualquer pessoa poderia apontar domínios para o servidor e esgotar o limite
+ * de emissão. Libera só o domínio do Amser e domínios verificados de empresas ativas.
+ */
+export async function canIssueCertificate(host: string): Promise<boolean> {
+  const h = host.trim().toLowerCase().replace(/\.$/, "");
+  if (!h || h === "localhost" || /^[\d.]+$/.test(h)) return false;
+  if (appHosts().includes(h)) return true;
+  return (await tenantByHost(h)) !== null;
 }
