@@ -118,8 +118,9 @@ fi
 # ---------------------------------------------------------------------------
 say "1/6 Pacotes e Docker"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq git openssl curl ca-certificates cron >/dev/null
+APT="apt-get -o DPkg::Lock::Timeout=300"
+$APT update -qq
+$APT install -y -qq git openssl curl ca-certificates cron >/dev/null
 if ! command -v docker >/dev/null; then
   info "Instalando o Docker (não altera serviços que já rodam)…"
   curl -fsSL https://get.docker.com | sh >/dev/null
@@ -248,7 +249,7 @@ EOF
       info "Site do Amser no Nginx já existe ($SITE)."
     fi
     if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
-      command -v certbot >/dev/null || apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+      command -v certbot >/dev/null || $APT install -y -qq certbot python3-certbot-nginx >/dev/null
       if ! certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$(envget ACME_EMAIL)" --redirect >/tmp/amser-certbot.log 2>&1; then
         warn "Não consegui emitir o HTTPS (veja /tmp/amser-certbot.log). Confira se $DOMAIN aponta para $IP."
       fi
