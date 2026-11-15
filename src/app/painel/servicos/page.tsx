@@ -7,6 +7,7 @@ import { formatBRL } from "@/lib/format";
 import { computeDepositCents } from "@/lib/scheduling/deposit";
 import type { Service, ServiceCategory, ServiceProfessional } from "@prisma/client";
 import { saveServiceAction } from "../actions";
+import { ProfessionalPicker } from "./ProfessionalPicker";
 
 type Svc = Service & { category: ServiceCategory | null; professionals: ServiceProfessional[] };
 
@@ -36,18 +37,9 @@ function ServiceForm({ svc, pros }: { svc?: Svc; pros: { id: string; displayName
         <Field label="% do sinal"><Input name="depositPercent" type="number" min={0} max={100} defaultValue={svc?.depositType === "percent" ? svc.depositValue : 30} /></Field>
         <Field label="Valor fixo (R$)"><Input name="depositFixed" inputMode="decimal" defaultValue={svc?.depositType === "fixed" ? cents(svc.depositValue) : ""} /></Field>
       </div>
-      <fieldset className="sm:col-span-2">
-        <legend className="mb-1 text-sm font-medium">Profissionais que fazem este serviço</legend>
-        <div className="flex flex-wrap gap-3">
-          {pros.map((p) => (
-            <label key={p.id} className="flex items-center gap-1.5 text-sm">
-              <input type="checkbox" name="professionals" value={p.id} defaultChecked={svc ? svc.professionals.some((sp) => sp.professionalId === p.id) : true} />
-              {p.displayName}
-            </label>
-          ))}
-          {!pros.length && <span className="text-sm text-zinc-500">Cadastre a equipe primeiro.</span>}
-        </div>
-      </fieldset>
+      <div className="sm:col-span-2">
+        <ProfessionalPicker pros={pros} defaultSelected={svc ? svc.professionals.map((sp) => sp.professionalId) : pros.map((p) => p.id)} />
+      </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="active" defaultChecked={svc ? svc.active : true} /> Ativo na página</label>
       <div className="sm:col-span-2"><SubmitButton>{svc ? "Salvar" : "Adicionar serviço"}</SubmitButton></div>
     </form>

@@ -86,6 +86,13 @@ export default async function PainelLayout({ children }: { children: React.React
   const footer = (
     <div className="space-y-0.5">
       {!support && <FooterLink href="/conta" icon="user">Minha conta</FooterLink>}
+      {support && (
+        <form action={endSupportAction}>
+          <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-50">
+            <Icon name="building" className="size-[18px]" /> Voltar ao admin
+          </button>
+        </form>
+      )}
       <form action={logout}>
         <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900">
           <Icon name="logout" className="size-[18px] text-zinc-400" /> Sair
@@ -96,9 +103,15 @@ export default async function PainelLayout({ children }: { children: React.React
   return (
     <SideNav groups={nav} brand={brand} footer={footer}>
       {support && (
-        <div className="flex flex-wrap items-center justify-center gap-3 bg-violet-700 px-4 py-2 text-sm text-white">
-          <span>Modo suporte Amser em <strong>{tenant.name}</strong> — tudo que você fizer fica registrado na auditoria.</span>
-          <form action={endSupportAction}><button className="rounded bg-white/20 px-2 py-0.5 font-medium hover:bg-white/30">Sair do modo suporte</button></form>
+        <div className="sticky top-0 z-40 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-violet-700 px-4 py-2 text-sm text-white">
+          <span>
+            Gerenciando <strong>{tenant.name}</strong> como superadmin
+            {tenant.status !== "active" && <> · página {tenant.status === "suspended" ? "suspensa" : "não publicada"}</>}
+            <span className="hidden sm:inline"> · alterações ficam registradas com o seu usuário</span>
+          </span>
+          <form action={endSupportAction}>
+            <button className="rounded-md bg-white/20 px-2.5 py-1 font-medium hover:bg-white/30">← Voltar ao admin</button>
+          </form>
         </div>
       )}
       {tenant.status === "suspended" && (

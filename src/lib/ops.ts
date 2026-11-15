@@ -4,32 +4,34 @@ import { Errors } from "./errors";
 import { storage } from "./storage";
 
 /**
- * Operação (§13): acesso de suporte autorizado pelo dono e exclusão
- * programada de empresas.
+ * Operação (§13): gestão das empresas pelo superadmin e exclusão programada.
  */
-export const SUPPORT_HOURS = [2, 24, 72] as const;
 export const DELETION_GRACE_DAYS = 30;
 
-/** O dono autoriza a equipe Amser a acessar o painel por algumas horas. */
-export async function grantSupportAccess(tenantId: string, hours: number, actorId: string) {
-  if (!SUPPORT_HOURS.includes(hours as (typeof SUPPORT_HOURS)[number])) throw Errors.validation("Prazo inválido");
-  const until = new Date(Date.now() + hours * 3600_000);
-  await prisma.tenant.update({ where: { id: tenantId }, data: { supportAccessUntil: until } });
-  await audit({ tenantId, actorId, action: "support.granted", resource: `tenant:${tenantId}`, meta: { hours } });
-  return until;
-}
-
-export async function revokeSupportAccess(tenantId: string, actorId: string) {
-  await prisma.tenant.update({ where: { id: tenantId }, data: { supportAccessUntil: null } });
-  await audit({ tenantId, actorId, action: "support.revoked", resource: `tenant:${tenantId}` });
-}
-
-/** Superadmin entra em modo suporte (só com autorização vigente). */
-export async function assertSupportAllowed(tenantId: string) {
+/**
+ * O superadmin gerencia o painel de qualquer empresa não excluída, sem
+ * autorização prévia do dono (ADR 0016). Tudo o que ele faz fica na
+ * auditoria com o id dele, e o dono vê os acessos em Configurações.
+ */
+export async function assertManageable(tenantId: string) {
   const t = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  if (!t) throw Errors.notFound("Empresa");
-  if (!t.supportAccessUntil || t.supportAccessUntil < new Date()) throw Errors.policy("O dono ainda não autorizou o acesso de suporte (Configurações → Acesso de suporte)");
+  if (!t || t.status === "deleted") throw Errors.notFound("Empresa");
   return t;
+}
+
+/** Últimos acessos da equipe Amser ao painel da empresa (transparência para o dono). */
+export async function supportAccessLog(tenantId: string, take = 10) {
+  const rows = await prisma.auditLog.findMany({
+    where: { tenantId, action: "support.enter" },
+    orderBy: { createdAt: "desc" },
+    take,
+  });
+  const ids = [...new Set(rows.map((r) => r.actorId).filter((x): x is string => !!x))];
+  const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }) : [];
+  return rows.map((r) => {
+    const u = users.find((x) => x.id === r.actorId);
+    return { at: r.createdAt, who: u?.name || u?.email || "Equipe Amser" };
+  });
 }
 
 export async function scheduleDeletion(tenantId: string, actorId: string, days = DELETION_GRACE_DAYS) {

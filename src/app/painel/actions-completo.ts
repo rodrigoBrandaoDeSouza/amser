@@ -8,29 +8,10 @@ import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { STAFF_PERMISSIONS, type StaffPermission } from "@/lib/auth/permissions";
 import { anonymizeCustomer, importCustomersCsv, setWhatsappConsent, updateCustomer } from "@/lib/crm";
-import { grantSupportAccess, revokeSupportAccess } from "@/lib/ops";
 
 // ---------------------------------------------------------------- suporte
 
-export async function grantSupportAction(fd: FormData) {
-  const { user, tenant, support } = await requireTenantUser();
-  if (support) throw Errors.forbidden();
-  await runAction("/painel/configuracoes", async () => {
-    const until = await grantSupportAccess(tenant.id, int(fd, "hours", 24), user.id);
-    return `Acesso de suporte liberado até ${until.toLocaleString("pt-BR")}`;
-  });
-}
-
-export async function revokeSupportAction() {
-  const { user, tenant, support } = await requireTenantUser();
-  if (support) throw Errors.forbidden();
-  await runAction("/painel/configuracoes", async () => {
-    await revokeSupportAccess(tenant.id, user.id);
-    return "Acesso de suporte encerrado";
-  });
-}
-
-/** Superadmin sai do modo suporte (volta para a sessão normal de admin). */
+/** Superadmin sai da empresa que estava gerenciando e volta ao painel de admin. */
 export async function endSupportAction() {
   const s = await currentSession();
   if (s?.user.role === "superadmin") {

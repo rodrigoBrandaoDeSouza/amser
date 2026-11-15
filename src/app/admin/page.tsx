@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { Badge, Card, Flash, LinkButton, PageHeader, Stat } from "@/components/ui";
+import { Badge, Button, Card, Flash, LinkButton, PageHeader, Stat } from "@/components/ui";
+import { enterSupportAction } from "./actions";
 import { flashParams, type SearchParams } from "@/lib/actions";
 import { mrrCents } from "@/lib/billing/service";
 import { formatBRL } from "@/lib/format";
@@ -67,6 +68,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Search
                 <th className="px-2 py-2">Status</th>
                 <th className="px-2 py-2">Plano</th>
                 <th className="px-2 py-2 text-right">Agendamentos</th>
+                <th className="px-2 py-2"><span className="sr-only">Ações</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -80,10 +82,17 @@ export default async function AdminHome({ searchParams }: { searchParams: Search
                   <td className="px-2 py-2"><Badge tone={STATUS_TONE[t.status]}>{STATUS_TEXT[t.status]}</Badge></td>
                   <td className="px-2 py-2">{t.plan?.name ?? "—"}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{t._count.appointments}</td>
+                  <td className="px-2 py-2 text-right">
+                    {t.status !== "deleted" && t.status !== "prospect" && (
+                      <form action={enterSupportAction.bind(null, t.id)}>
+                        <Button type="submit" variant="secondary" className="px-2.5 py-1 text-xs">Gerenciar</Button>
+                      </form>
+                    )}
+                  </td>
                 </tr>
               ))}
               {!tenants.length && (
-                <tr><td colSpan={5} className="px-2 py-6 text-center text-zinc-500">Nenhuma empresa ainda.</td></tr>
+                <tr><td colSpan={6} className="px-2 py-6 text-center text-zinc-500">Nenhuma empresa ainda.</td></tr>
               )}
             </tbody>
           </table>

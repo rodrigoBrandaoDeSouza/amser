@@ -6,6 +6,6 @@
 - **Encerramento de sessões:** trocar ou redefinir a senha grava `sessions_valid_after`. Sessões JWT emitidas antes disso são recusadas.
 - **MFA opcional** por TOTP (RFC 6238: SHA-1, 30 s, 6 dígitos, ±1 passo), testado com os vetores oficiais. O segredo fica criptografado (AES-GCM). O login vira duas etapas, com cookie de 5 min só para o segundo passo e rate limit de tentativas.
 - **E-mail:** provider `console` em dev ou SMTP em produção (qualquer provedor).
-- **Modo suporte:** superadmin só entra no painel de uma empresa com autorização vigente do dono (2 h, 24 h ou 3 dias). A sessão de suporte dura no máximo 2 h e tudo fica na auditoria com o id do superadmin.
+- **Modo suporte:** substituído pela ADR 0016. O superadmin gerencia qualquer empresa sem autorização prévia do dono; tudo fica na auditoria com o id dele.
 
 **Pendências.** Códigos de recuperação de MFA e bloqueio de reutilização do mesmo código TOTP dentro da janela.

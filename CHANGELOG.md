@@ -2,6 +2,10 @@
 
 ## Não lançado
 
+**Superadmin e cadastro de serviços**
+- Superadmin gerencia o painel de qualquer empresa pelo botão "Gerenciar", sem autorização prévia do dono e sem usar a senha do cliente. Faixa no topo mostra a empresa; tudo fica na auditoria com o usuário do superadmin; o dono vê os acessos em Configurações (ADR 0016).
+- Seleção dos profissionais do serviço em cartões grandes (bons para o celular), com contador, "selecionar todos/limpar", busca para equipes grandes e aviso quando ninguém está marcado.
+
 **Layout e navegação**
 - Painel e superadmin com menu lateral agrupado por tarefa (Agenda e clientes, Seu negócio, Página e WhatsApp, Conta), ícones, item ativo destacado e menu deslizante no celular.
 - Telas de carregamento: esqueleto com o formato da página ao trocar de tela, barra de progresso no topo e spinner no item clicado.

@@ -25,9 +25,9 @@ export async function createSession(user: User, opts: { supportTenantId?: string
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setAudience("amser:session")
-    .setExpirationTime(opts.supportTenantId ? "2h" : `${MAX_AGE_S}s`)
+    .setExpirationTime(opts.supportTenantId ? "12h" : `${MAX_AGE_S}s`)
     .sign(secret());
-  (await cookies()).set(COOKIE, jwt, cookieOpts(opts.supportTenantId ? 7200 : MAX_AGE_S));
+  (await cookies()).set(COOKIE, jwt, cookieOpts(opts.supportTenantId ? 12 * 3600 : MAX_AGE_S));
 }
 
 export async function destroySession() {
@@ -108,7 +108,7 @@ export async function requireTenantUser(opts: { allowStaff?: boolean; allowBilli
   if (user.role === "superadmin") {
     if (!s.supportTenantId) redirect("/admin");
     const t = await prisma.tenant.findUnique({ where: { id: s.supportTenantId } });
-    if (!t?.supportAccessUntil || t.supportAccessUntil < new Date()) redirect("/admin?erro=" + encodeURIComponent("Acesso de suporte expirado ou não autorizado pelo dono"));
+    if (!t || t.status === "deleted") redirect("/admin?erro=" + encodeURIComponent("Empresa não encontrada ou excluída"));
     // Age como dono, mas o actorId registrado na auditoria é o do superadmin.
     user = { ...user, role: "owner", tenantId: t.id };
     support = true;
@@ -122,8 +122,9 @@ export async function requireTenantUser(opts: { allowStaff?: boolean; allowBilli
   const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
   // Suspensão por cobrança: o dono ainda acessa a página do plano para pagar.
   const billingSuspended = tenant?.status === "suspended" && tenant.suspendedReason === "billing" && user.role === "owner";
-  if (billingSuspended && !opts.allowBillingSuspended) redirect("/painel/plano");
-  if (!tenant || tenant.status === "deleted" || (tenant.status === "suspended" && !billingSuspended) || tenant.status === "prospect") {
+  // Superadmin gerencia também empresas suspensas e prévias de prospect (ADR 0016).
+  if (billingSuspended && !opts.allowBillingSuspended && !support) redirect("/painel/plano");
+  if (!tenant || tenant.status === "deleted" || (!support && ((tenant.status === "suspended" && !billingSuspended) || tenant.status === "prospect"))) {
     redirect("/login?erro=empresa-indisponivel");
   }
   const professional = user.role === "staff" ? await tenantDb(tenant.id).professional.findFirst({ where: { userId: user.id } }) : null;

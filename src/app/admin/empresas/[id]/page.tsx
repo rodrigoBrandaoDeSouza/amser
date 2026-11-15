@@ -167,16 +167,12 @@ export default async function TenantDetail({ params, searchParams }: { params: P
             </Card>
           )}
           {!isProspect && (
-            <Card title="Suporte e exclusão">
+            <Card title="Gerenciar e excluir">
               <div className="space-y-3 text-sm">
-                {tenant.supportAccessUntil && tenant.supportAccessUntil > new Date() ? (
-                  <form action={enterSupportAction.bind(null, id)}>
-                    <p className="mb-2 text-zinc-600">Dono autorizou acesso até {tenant.supportAccessUntil.toLocaleString("pt-BR")}.</p>
-                    <Button type="submit">Entrar no painel (modo suporte)</Button>
-                  </form>
-                ) : (
-                  <p className="text-zinc-600">Acesso de suporte não autorizado. O dono libera em Configurações → Acesso de suporte.</p>
-                )}
+                <form action={enterSupportAction.bind(null, id)}>
+                  <p className="mb-2 text-zinc-600">Abre o painel desta empresa com acesso total. Tudo fica registrado na auditoria com o seu usuário.</p>
+                  <Button type="submit">Gerenciar no painel</Button>
+                </form>
                 <div className="border-t border-zinc-100 pt-3">
                   {tenant.deletionScheduledAt ? (
                     <form action={cancelDeletionAction.bind(null, id)}>

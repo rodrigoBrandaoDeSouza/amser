@@ -158,8 +158,8 @@ export async function enterSupportAction(tenantId: string) {
   const admin = await requireSuperadmin();
   let error: string | null = null;
   try {
-    const { assertSupportAllowed } = await import("@/lib/ops");
-    await assertSupportAllowed(tenantId);
+    const { assertManageable } = await import("@/lib/ops");
+    await assertManageable(tenantId);
   } catch (e) {
     error = e instanceof AppError ? e.message : "Erro";
   }

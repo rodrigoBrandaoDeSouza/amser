@@ -7,13 +7,14 @@ import { VERIFY_PREFIX } from "@/lib/domains";
 import { env } from "@/lib/env";
 import { saveSettingsAction } from "../actions";
 import { addDomainAction, removeDomainAction, savePoliciesAction, verifyDomainAction } from "../actions-fase2";
-import { grantSupportAction, revokeSupportAction, saveRetentionAction } from "../actions-completo";
+import { saveRetentionAction } from "../actions-completo";
+import { supportAccessLog } from "@/lib/ops";
 
 export default async function SettingsPage({ searchParams }: { searchParams: SearchParams }) {
   const { tenant, db } = await requireTenantUser();
   const { ok, erro } = await flashParams(searchParams);
   const t = tenant;
-  const domains = await db.tenantDomain.findMany({ orderBy: { createdAt: "asc" } });
+  const [domains, accesses] = await Promise.all([db.tenantDomain.findMany({ orderBy: { createdAt: "asc" } }), supportAccessLog(t.id, 5)]);
   const appHost = new URL(env().APP_URL).hostname;
   return (
     <>
@@ -121,24 +122,21 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
           </form>
         </Card>
 
-        <Card title="Acesso de suporte Amser">
-          {t.supportAccessUntil && t.supportAccessUntil > new Date() ? (
-            <form action={revokeSupportAction} className="space-y-2">
-              <p className="text-sm">A equipe Amser pode acessar seu painel até <strong>{t.supportAccessUntil.toLocaleString("pt-BR")}</strong>. Tudo fica registrado.</p>
-              <SubmitButton variant="danger">Encerrar acesso agora</SubmitButton>
-            </form>
+        <Card title="Acessos da equipe Amser">
+          <p className="text-sm text-zinc-600">
+            Nossa equipe pode entrar no seu painel para configurar e dar suporte. Tudo o que for alterado fica registrado com o nome de quem fez.
+          </p>
+          {accesses.length ? (
+            <ul className="mt-3 divide-y divide-zinc-100 text-sm">
+              {accesses.map((x, i) => (
+                <li key={i} className="flex justify-between gap-3 py-1.5">
+                  <span>{x.who}</span>
+                  <span className="text-zinc-500">{x.at.toLocaleString("pt-BR", { timeZone: t.timezone })}</span>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <form action={grantSupportAction} className="flex flex-wrap items-end gap-2">
-              <p className="w-full text-sm text-zinc-600">Precisa de ajuda? Libere o acesso temporário para nossa equipe ver seu painel. Você pode encerrar quando quiser.</p>
-              <Field label="Por quanto tempo">
-                <Select name="hours" defaultValue="24">
-                  <option value="2">2 horas</option>
-                  <option value="24">24 horas</option>
-                  <option value="72">3 dias</option>
-                </Select>
-              </Field>
-              <SubmitButton variant="secondary">Liberar acesso</SubmitButton>
-            </form>
+            <p className="mt-3 text-sm text-zinc-500">Nenhum acesso até agora.</p>
           )}
         </Card>
       </div>

@@ -4,7 +4,8 @@ import { createBooking, markOutcome } from "@/lib/scheduling/booking";
 import { anonymizeCustomer, applyRetention, exportCustomerData, importCustomersCsv, setWhatsappConsent } from "@/lib/crm";
 import { buildReport, appointmentsCsv } from "@/lib/reports";
 import { isEnabled, setFlag } from "@/lib/flags";
-import { cancelDeletion, grantSupportAccess, purgeScheduledDeletions, scheduleDeletion, assertSupportAllowed } from "@/lib/ops";
+import { cancelDeletion, purgeScheduledDeletions, scheduleDeletion, assertManageable, supportAccessLog } from "@/lib/ops";
+import { audit } from "@/lib/audit";
 import { requestPasswordReset, resetPassword, sendVerificationEmail, verifyEmail, beginMfaSetup, confirmMfaSetup, checkMfaCode } from "@/lib/auth/account";
 import { verifyPassword } from "@/lib/auth/password";
 import { totp } from "@/lib/auth/totp";
@@ -155,12 +156,21 @@ describe("flags e operação", () => {
     ).rejects.toMatchObject({ code: "validation" });
   });
 
-  it("acesso de suporte só com autorização do dono", async () => {
+  it("superadmin gerencia qualquer empresa não excluída, e o dono vê o histórico de acessos", async () => {
     const T = await makeTenant();
-    await expect(assertSupportAllowed(T.tenant.id)).rejects.toMatchObject({ code: "policy" });
-    await grantSupportAccess(T.tenant.id, 2, "dono");
-    await expect(assertSupportAllowed(T.tenant.id)).resolves.toBeTruthy();
-    await expect(grantSupportAccess(T.tenant.id, 999, "dono")).rejects.toMatchObject({ code: "validation" });
+    await expect(assertManageable(T.tenant.id)).resolves.toMatchObject({ id: T.tenant.id });
+    await prisma.tenant.update({ where: { id: T.tenant.id }, data: { status: "suspended", suspendedReason: "billing" } });
+    await expect(assertManageable(T.tenant.id)).resolves.toBeTruthy();
+    await expect(assertManageable("nao-existe")).rejects.toMatchObject({ code: "not_found" });
+    const admin = await prisma.user.create({ data: { email: "suporte@amser.dev", name: "Equipe Suporte", passwordHash: "x", role: "superadmin" } });
+    await audit({ tenantId: T.tenant.id, actorId: admin.id, action: "support.enter", resource: `tenant:${T.tenant.id}` });
+    const other = await makeTenant();
+    await audit({ tenantId: other.tenant.id, actorId: admin.id, action: "support.enter", resource: `tenant:${other.tenant.id}` });
+    const log = await supportAccessLog(T.tenant.id);
+    expect(log).toHaveLength(1);
+    expect(log[0].who).toBe("Equipe Suporte");
+    await prisma.tenant.update({ where: { id: T.tenant.id }, data: { status: "deleted" } });
+    await expect(assertManageable(T.tenant.id)).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("exclusão programada: suspende, pode cancelar, e apaga tudo no prazo", async () => {
